@@ -377,7 +377,7 @@ int LiveCheck::connected() {
 }
 
 int LiveCheck::tls_handshake() {
-  conn_.last_read = ev_now(conn_.loop);
+  conn_.last_read = std::chrono::steady_clock::now();
 
   ERR_clear_error();
 
@@ -405,14 +405,7 @@ int LiveCheck::tls_handshake() {
   const unsigned char *next_proto = nullptr;
   unsigned int next_proto_len = 0;
 
-#ifndef OPENSSL_NO_NEXTPROTONEG
-  SSL_get0_next_proto_negotiated(conn_.tls.ssl, &next_proto, &next_proto_len);
-#endif // !OPENSSL_NO_NEXTPROTONEG
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
-  if (next_proto == nullptr) {
-    SSL_get0_alpn_selected(conn_.tls.ssl, &next_proto, &next_proto_len);
-  }
-#endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
+  SSL_get0_alpn_selected(conn_.tls.ssl, &next_proto, &next_proto_len);
 
   auto proto = StringRef{next_proto, next_proto_len};
 
@@ -446,7 +439,7 @@ int LiveCheck::tls_handshake() {
 }
 
 int LiveCheck::read_tls() {
-  conn_.last_read = ev_now(conn_.loop);
+  conn_.last_read = std::chrono::steady_clock::now();
 
   std::array<uint8_t, 4_k> buf;
 
@@ -470,7 +463,7 @@ int LiveCheck::read_tls() {
 }
 
 int LiveCheck::write_tls() {
-  conn_.last_read = ev_now(conn_.loop);
+  conn_.last_read = std::chrono::steady_clock::now();
 
   ERR_clear_error();
 
@@ -519,7 +512,7 @@ int LiveCheck::write_tls() {
 }
 
 int LiveCheck::read_clear() {
-  conn_.last_read = ev_now(conn_.loop);
+  conn_.last_read = std::chrono::steady_clock::now();
 
   std::array<uint8_t, 4_k> buf;
 
@@ -541,7 +534,7 @@ int LiveCheck::read_clear() {
 }
 
 int LiveCheck::write_clear() {
-  conn_.last_read = ev_now(conn_.loop);
+  conn_.last_read = std::chrono::steady_clock::now();
 
   struct iovec iov;
 

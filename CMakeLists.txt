@@ -22,15 +22,15 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.5)
 # XXX using 1.8.90 instead of 1.9.0-DEV
-project(nghttp2 VERSION 1.43.0)
+project(nghttp2 VERSION 1.59.0)
 
 # See versioning rule:
-#  http://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
-set(LT_CURRENT  34)
-set(LT_REVISION 1)
-set(LT_AGE      20)
+#  https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
+set(LT_CURRENT  40)
+set(LT_REVISION 0)
+set(LT_AGE      26)
 
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 include(Version)
@@ -52,15 +52,29 @@ endif()
 
 include(GNUInstallDirs)
 
-# For Python bindings and documentation
-# (Must be called before PythonLibs for matching versions.)
-find_package(PythonInterp)
+# For documentation
+find_package(Python3 COMPONENTS Interpreter)
 
 # Auto-detection of features that can be toggled
-find_package(OpenSSL 1.0.1)
-find_package(Libev 4.11)
-find_package(Libcares 1.7.5)
-find_package(ZLIB 1.2.3)
+if(NOT ENABLE_LIB_ONLY)
+  find_package(Libev 4.11)
+  find_package(Libcares 1.7.5)
+  find_package(ZLIB 1.2.3)
+endif()
+
+find_package(OpenSSL 1.1.1)
+find_package(Libngtcp2 1.0.0)
+find_package(Libngtcp2_crypto_quictls 1.0.0)
+if(LIBNGTCP2_CRYPTO_QUICTLS_FOUND)
+  set(HAVE_LIBNGTCP2_CRYPTO_QUICTLS 1)
+endif()
+find_package(Libnghttp3 1.1.0)
+if(WITH_LIBBPF)
+  find_package(Libbpf 0.7.0)
+  if(NOT LIBBPF_FOUND)
+    message(FATAL_ERROR "libbpf was requested (WITH_LIBBPF=1) but not found.")
+  endif()
+endif()
 if(OPENSSL_FOUND AND LIBEV_FOUND AND ZLIB_FOUND)
   set(ENABLE_APP_DEFAULT ON)
 else()
@@ -70,15 +84,8 @@ find_package(Systemd 209)
 find_package(Jansson  2.5)
 set(ENABLE_HPACK_TOOLS_DEFAULT ${JANSSON_FOUND})
 # 2.0.8 is required because we use evconnlistener_set_error_cb()
-find_package(Libevent 2.0.8 COMPONENTS libevent openssl)
+find_package(Libevent 2.0.8 COMPONENTS core extra openssl)
 set(ENABLE_EXAMPLES_DEFAULT ${LIBEVENT_OPENSSL_FOUND})
-find_package(Cython)
-find_package(PythonLibs)
-if(CYTHON_FOUND AND PYTHONLIBS_FOUND)
-  set(ENABLE_PYTHON_BINDINGS_DEFAULT ON)
-else()
-  set(ENABLE_PYTHON_BINDINGS_DEFAULT OFF)
-endif()
 
 find_package(LibXml2 2.6.26)
 set(WITH_LIBXML2_DEFAULT    ${LIBXML2_FOUND})
@@ -87,8 +94,7 @@ set(WITH_JEMALLOC_DEFAULT   ${JEMALLOC_FOUND})
 
 include(CMakeOptions.txt)
 
-if(ENABLE_LIB_ONLY AND (ENABLE_APP OR ENABLE_HPACK_TOOLS OR ENABLE_EXAMPLES OR
-  ENABLE_PYTHON_BINDINGS))
+if(ENABLE_LIB_ONLY AND (ENABLE_APP OR ENABLE_HPACK_TOOLS OR ENABLE_EXAMPLES))
   # Remember when disabled options are disabled for later diagnostics.
   set(ENABLE_LIB_ONLY_DISABLED_OTHERS 1)
 else()
@@ -98,7 +104,6 @@ if(ENABLE_LIB_ONLY)
   set(ENABLE_APP            OFF)
   set(ENABLE_HPACK_TOOLS    OFF)
   set(ENABLE_EXAMPLES       OFF)
-  set(ENABLE_PYTHON_BINDINGS OFF)
 endif()
 
 # Do not disable assertions based on CMAKE_BUILD_TYPE.
@@ -144,20 +149,6 @@ cmake_pop_check_state()
 # Additional libraries required for programs under src directory.
 set(APP_LIBRARIES)
 
-if(ENABLE_PYTHON_BINDINGS)
-  if(NOT (CYTHON_FOUND AND PYTHONLIBS_FOUND))
-    message(FATAL_ERROR "python bindings were requested "
-      "(ENABLE_PYTHON_BINDINGS=1) but dependencies are not met.")
-  endif()
-  if(NOT PYTHON_VERSION_STRING STREQUAL PYTHONLIBS_VERSION_STRING)
-    message(FATAL_ERROR
-      "Python executable and library must have the same version!"
-      " Found Python ${PYTHON_VERSION_STRING} and"
-      " PythonLibs ${PYTHONLIBS_VERSION_STRING}"
-    )
-  endif()
-endif()
-
 set(CMAKE_THREAD_PREFER_PTHREAD 1)
 find_package(Threads)
 if(CMAKE_USE_PTHREADS_INIT)
@@ -167,7 +158,7 @@ endif()
 # case "$host" in
 #   *android*)
 #     android_build=yes
-#     # android does not need -pthread, but needs followng 3 libs for C++
+#     # android does not need -pthread, but needs following 3 libs for C++
 #     APPLDFLAGS="$APPLDFLAGS -lstdc++ -latomic -lsupc++"
 
 # dl: openssl requires libdl when it is statically linked.
@@ -182,9 +173,21 @@ if(HAVE_CUNIT)
 endif()
 
 # openssl (for src)
+include(CheckSymbolExists)
 set(HAVE_OPENSSL    ${OPENSSL_FOUND})
 if(OPENSSL_FOUND)
   set(OPENSSL_INCLUDE_DIRS  ${OPENSSL_INCLUDE_DIR})
+  cmake_push_check_state()
+  set(CMAKE_REQUIRED_INCLUDES   "${OPENSSL_INCLUDE_DIR}")
+  set(CMAKE_REQUIRED_LIBRARIES  "${OPENSSL_LIBRARIES}")
+  if(WIN32)
+    set(CMAKE_REQUIRED_LIBRARIES "${CMAKE_REQUIRED_LIBRARIES}" "ws2_32" "bcrypt")
+  endif()
+  check_symbol_exists(SSL_provide_quic_data "openssl/ssl.h" HAVE_SSL_PROVIDE_QUIC_DATA)
+  if(NOT HAVE_SSL_PROVIDE_QUIC_DATA)
+    message(WARNING "OpenSSL in ${OPENSSL_LIBRARIES} does not have SSL_provide_quic_data.  HTTP/3 support cannot be enabled")
+  endif()
+  cmake_pop_check_state()
 else()
   set(OPENSSL_INCLUDE_DIRS  "")
   set(OPENSSL_LIBRARIES     "")
@@ -219,8 +222,18 @@ endif()
 # jemalloc
 set(HAVE_JEMALLOC   ${JEMALLOC_FOUND})
 
-if(ENABLE_ASIO_LIB)
-  find_package(Boost 1.54.0 REQUIRED system thread)
+# libbpf (for bpf)
+set(HAVE_LIBBPF ${LIBBPF_FOUND})
+if(LIBBPF_FOUND)
+  set(BPFCFLAGS -Wall -O2 -g)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # For Debian/Ubuntu
+    set(EXTRABPFCFLAGS -I/usr/include/${CMAKE_SYSTEM_PROCESSOR}-linux-gnu)
+  endif()
+
+  check_c_source_compiles("
+#include <linux/bpf.h>
+int main() { enum bpf_stats_type foo; (void)foo; }" HAVE_BPF_STATS_TYPE)
 endif()
 
 # The nghttp, nghttpd and nghttpx under src depend on zlib, OpenSSL and libev
@@ -228,18 +241,24 @@ if(ENABLE_APP AND NOT (ZLIB_FOUND AND OPENSSL_FOUND AND LIBEV_FOUND))
   message(FATAL_ERROR "Applications were requested (ENABLE_APP=1) but dependencies are not met.")
 endif()
 
+# HTTP/3 requires quictls/openssl, libngtcp2, libngtcp2_crypto_quictls
+# and libnghttp3.
+if(ENABLE_HTTP3 AND NOT (HAVE_SSL_PROVIDE_QUIC_DATA AND LIBNGTCP2_FOUND AND LIBNGTCP2_CRYPTO_QUICTLS_FOUND AND LIBNGHTTP3_FOUND))
+  message(FATAL_ERROR "HTTP/3 was requested (ENABLE_HTTP3=1) but dependencies are not met.")
+endif()
+
 # HPACK tools requires jansson
 if(ENABLE_HPACK_TOOLS AND NOT HAVE_JANSSON)
   message(FATAL_ERROR "HPACK tools were requested (ENABLE_HPACK_TOOLS=1) but dependencies are not met.")
 endif()
 
-# C++ library libnghttp2_asio
+# examples
 if(ENABLE_EXAMPLES AND NOT (OPENSSL_FOUND AND LIBEVENT_OPENSSL_FOUND))
   message(FATAL_ERROR "examples were requested (ENABLE_EXAMPLES=1) but dependencies are not met.")
 endif()
 
 # third-party http-parser only be built when needed
-if(ENABLE_EXAMPLES OR ENABLE_APP OR ENABLE_HPACK_TOOLS OR ENABLE_ASIO_LIB)
+if(ENABLE_EXAMPLES OR ENABLE_APP OR ENABLE_HPACK_TOOLS)
   set(ENABLE_THIRD_PARTY 1)
   # mruby (for src/nghttpx)
   set(HAVE_MRUBY      ${WITH_MRUBY})
@@ -257,12 +276,13 @@ check_include_file("inttypes.h"     HAVE_INTTYPES_H)
 check_include_file("limits.h"       HAVE_LIMITS_H)
 check_include_file("netdb.h"        HAVE_NETDB_H)
 check_include_file("netinet/in.h"   HAVE_NETINET_IN_H)
+check_include_file("netinet/ip.h"   HAVE_NETINET_IP_H)
 check_include_file("pwd.h"          HAVE_PWD_H)
 check_include_file("sys/socket.h"   HAVE_SYS_SOCKET_H)
 check_include_file("sys/time.h"     HAVE_SYS_TIME_H)
 check_include_file("syslog.h"       HAVE_SYSLOG_H)
-check_include_file("time.h"         HAVE_TIME_H)
 check_include_file("unistd.h"       HAVE_UNISTD_H)
+check_include_file("windows.h"      HAVE_WINDOWS_H)
 
 include(CheckTypeSize)
 # Checks for typedefs, structures, and compiler characteristics.
@@ -292,15 +312,14 @@ endif()
 include(CheckStructHasMember)
 check_struct_has_member("struct tm" tm_gmtoff time.h HAVE_STRUCT_TM_TM_GMTOFF)
 
-# Check size of pointer to decide we need 8 bytes alignment adjustment.
-check_type_size("int *"   SIZEOF_INT_P)
-check_type_size("time_t"  SIZEOF_TIME_T)
-
 # Checks for library functions.
 include(CheckFunctionExists)
 check_function_exists(_Exit     HAVE__EXIT)
 check_function_exists(accept4   HAVE_ACCEPT4)
+check_function_exists(clock_gettime HAVE_CLOCK_GETTIME)
 check_function_exists(mkostemp  HAVE_MKOSTEMP)
+
+check_symbol_exists(GetTickCount64 sysinfoapi.h HAVE_GETTICKCOUNT64)
 
 include(CheckSymbolExists)
 # XXX does this correctly detect initgroups (un)availability on cygwin?
@@ -313,6 +332,8 @@ if(NOT HAVE_DECL_INITGROUPS AND HAVE_UNISTD_H)
   endif()
 endif()
 
+check_symbol_exists(CLOCK_MONOTONIC "time.h" HAVE_DECL_CLOCK_MONOTONIC)
+
 set(WARNCFLAGS)
 set(WARNCXXFLAGS)
 if(CMAKE_C_COMPILER_ID MATCHES "MSVC")
@@ -322,65 +343,12 @@ if(CMAKE_C_COMPILER_ID MATCHES "MSVC")
   endif()
 else()
   if(ENABLE_WERROR)
-    extract_valid_c_flags(WARNCFLAGS    -Werror)
-    extract_valid_c_flags(WARNCXXFLAGS  -Werror)
+    set(WARNCFLAGS   "-Werror")
+    set(WARNCXXFLAGS "-Werror")
   endif()
 
-  # For C compiler
-  extract_valid_c_flags(WARNCFLAGS
-    -Wall
-    -Wextra
-    -Wmissing-prototypes
-    -Wstrict-prototypes
-    -Wmissing-declarations
-    -Wpointer-arith
-    -Wdeclaration-after-statement
-    -Wformat-security
-    -Wwrite-strings
-    -Wshadow
-    -Winline
-    -Wnested-externs
-    -Wfloat-equal
-    -Wundef
-    -Wendif-labels
-    -Wempty-body
-    -Wcast-align
-    -Wclobbered
-    -Wvla
-    -Wpragmas
-    -Wunreachable-code
-    -Waddress
-    -Wattributes
-    -Wdiv-by-zero
-    -Wshorten-64-to-32
-
-    -Wconversion
-    -Wextended-offsetof
-    -Wformat-nonliteral
-    -Wlanguage-extension-token
-    -Wmissing-field-initializers
-    -Wmissing-noreturn
-    -Wmissing-variable-declarations
-    # Not used because we cannot change public structs
-    # -Wpadded
-    -Wsign-conversion
-    # Not used because this basically disallows default case
-    # -Wswitch-enum
-    -Wunreachable-code-break
-    -Wunused-macros
-    -Wunused-parameter
-    -Wredundant-decls
-    # Only work with Clang for the moment
-    -Wheader-guard
-    # This is required because we pass format string as "const char*.
-    -Wno-format-nonliteral
-  )
-
-  extract_valid_cxx_flags(WARNCXXFLAGS
-    # For C++ compiler
-    -Wall
-    -Wformat-security
-  )
+  include(PickyWarningsC)
+  include(PickyWarningsCXX)
 endif()
 
 if(ENABLE_STATIC_CRT)
@@ -423,8 +391,6 @@ set(sbindir         "${CMAKE_INSTALL_FULL_SBINDIR}")
 foreach(name
    lib/libnghttp2.pc
    lib/includes/nghttp2/nghttp2ver.h
-   src/libnghttp2_asio.pc
-   python/setup.py
    integration-tests/config.go
    integration-tests/setenv
    doc/conf.py
@@ -435,24 +401,24 @@ foreach(name
    doc/tutorial-hpack.rst
    doc/nghttpx-howto.rst
    doc/h2load-howto.rst
-   doc/libnghttp2_asio.rst
-   doc/python-apiref.rst
    doc/building-android-binary.rst
    doc/nghttp2.h.rst
    doc/nghttp2ver.h.rst
-   doc/asio_http2.h.rst
-   doc/asio_http2_server.h.rst
-   doc/asio_http2_client.h.rst
    doc/contribute.rst
 )
   configure_file("${name}.in" "${name}" @ONLY)
 endforeach()
+
+if(APPLE)
+  add_definitions(-D__APPLE_USE_RFC_3542)
+endif()
 
 include_directories(
   "${CMAKE_CURRENT_BINARY_DIR}" # for config.h
 )
 # For use in src/CMakeLists.txt
 set(PKGDATADIR "${CMAKE_INSTALL_FULL_DATADIR}/${CMAKE_PROJECT_NAME}")
+set(PKGLIBDIR "${CMAKE_INSTALL_FULL_LIBDIR}/${CMAKE_PROJECT_NAME}")
 
 install(FILES README.rst DESTINATION "${CMAKE_INSTALL_DOCDIR}")
 
@@ -460,15 +426,16 @@ add_subdirectory(lib)
 #add_subdirectory(lib/includes)
 add_subdirectory(third-party)
 add_subdirectory(src)
-#add_subdirectory(src/includes)
 add_subdirectory(examples)
-add_subdirectory(python)
 add_subdirectory(tests)
 #add_subdirectory(tests/testdata)
 add_subdirectory(integration-tests)
-add_subdirectory(doc)
+if(ENABLE_DOC)
+  add_subdirectory(doc)
+endif()
 add_subdirectory(contrib)
 add_subdirectory(script)
+add_subdirectory(bpf)
 
 
 string(TOUPPER "${CMAKE_BUILD_TYPE}" _build_type)
@@ -486,11 +453,10 @@ message(STATUS "summary of build options:
       CXXFLAGS:       ${CMAKE_CXX_FLAGS_${_build_type}} ${CMAKE_CXX_FLAGS}
       WARNCFLAGS:     ${WARNCFLAGS}
       CXX1XCXXFLAGS:  ${CXX1XCXXFLAGS}
+      WARNCXXFLAGS:   ${WARNCXXFLAGS}
     Python:
-      Python:         ${PYTHON_EXECUTABLE}
-      PYTHON_VERSION: ${PYTHON_VERSION_STRING}
-      Library version:${PYTHONLIBS_VERSION_STRING}
-      Cython:         ${CYTHON_EXECUTABLE}
+      Python:          ${Python3_EXECUTABLE}
+      Python3_VERSION: ${Python3_VERSION}
     Test:
       CUnit:          ${HAVE_CUNIT} (LIBS='${CUNIT_LIBRARIES}')
       Failmalloc:     ${ENABLE_FAILMALLOC}
@@ -499,13 +465,15 @@ message(STATUS "summary of build options:
       Libxml2:        ${HAVE_LIBXML2} (LIBS='${LIBXML2_LIBRARIES}')
       Libev:          ${HAVE_LIBEV} (LIBS='${LIBEV_LIBRARIES}')
       Libc-ares:      ${HAVE_LIBCARES} (LIBS='${LIBCARES_LIBRARIES}')
+      Libngtcp2:      ${HAVE_LIBNGTCP2} (LIBS='${LIBNGTCP2_LIBRARIES}')
+      Libngtcp2_crypto_quictls: ${HAVE_LIBNGTCP2_CRYPTO_QUICTLS} (LIBS='${LIBNGTCP2_CRYPTO_QUICTLS_LIBRARIES}')
+      Libnghttp3:     ${HAVE_LIBNGHTTP3} (LIBS='${LIBNGHTTP3_LIBRARIES}')
+      Libbpf:         ${HAVE_LIBBPF} (LIBS='${LIBBPF_LIBRARIES}')
       Libevent(SSL):  ${HAVE_LIBEVENT_OPENSSL} (LIBS='${LIBEVENT_OPENSSL_LIBRARIES}')
       Jansson:        ${HAVE_JANSSON} (LIBS='${JANSSON_LIBRARIES}')
       Jemalloc:       ${HAVE_JEMALLOC} (LIBS='${JEMALLOC_LIBRARIES}')
       Zlib:           ${HAVE_ZLIB} (LIBS='${ZLIB_LIBRARIES}')
       Systemd:        ${HAVE_SYSTEMD} (LIBS='${SYSTEMD_LIBRARIES}')
-      Boost::System:  ${Boost_SYSTEM_LIBRARY}
-      Boost::Thread:  ${Boost_THREAD_LIBRARY}
     Third-party:
       http-parser:    ${ENABLE_THIRD_PARTY}
       MRuby:          ${HAVE_MRUBY}
@@ -513,10 +481,9 @@ message(STATUS "summary of build options:
     Features:
       Applications:   ${ENABLE_APP}
       HPACK tools:    ${ENABLE_HPACK_TOOLS}
-      Libnghttp2_asio:${ENABLE_ASIO_LIB}
       Examples:       ${ENABLE_EXAMPLES}
-      Python bindings:${ENABLE_PYTHON_BINDINGS}
       Threading:      ${ENABLE_THREADS}
+      HTTP/3(EXPERIMENTAL): ${ENABLE_HTTP3}
 ")
 if(ENABLE_LIB_ONLY_DISABLED_OTHERS)
   message("Only the library will be built. To build other components "

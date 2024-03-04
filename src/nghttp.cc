@@ -122,7 +122,9 @@ Config::Config()
       hexdump(false),
       no_push(false),
       expect_continue(false),
-      verify_peer(true) {
+      verify_peer(true),
+      ktls(false),
+      no_rfc7540_pri(false) {
   nghttp2_option_new(&http2_option);
   nghttp2_option_set_peer_max_concurrent_streams(http2_option,
                                                  peer_max_concurrent_streams);
@@ -198,11 +200,11 @@ StringRef Request::get_real_host() const {
 
 uint16_t Request::get_real_port() const {
   auto scheme = get_real_scheme();
-  return config.host_override.empty()
-             ? util::has_uri_field(u, UF_PORT) ? u.port
-                                               : scheme == "https" ? 443 : 80
-             : config.port_override == 0 ? scheme == "https" ? 443 : 80
-                                         : config.port_override;
+  return config.host_override.empty() ? util::has_uri_field(u, UF_PORT) ? u.port
+                                        : scheme == "https"             ? 443
+                                                                        : 80
+         : config.port_override == 0  ? scheme == "https" ? 443 : 80
+                                      : config.port_override;
 }
 
 void Request::init_html_parser() {
@@ -424,22 +426,34 @@ constexpr llhttp_settings_t htp_hooks = {
     htp_msg_begincb,    // llhttp_cb      on_message_begin;
     nullptr,            // llhttp_data_cb on_url;
     nullptr,            // llhttp_data_cb on_status;
+    nullptr,            // llhttp_data_cb on_method;
+    nullptr,            // llhttp_data_cb on_version;
     nullptr,            // llhttp_data_cb on_header_field;
     nullptr,            // llhttp_data_cb on_header_value;
+    nullptr,            // llhttp_data_cb on_chunk_extension_name;
+    nullptr,            // llhttp_data_cb on_chunk_extension_value;
     nullptr,            // llhttp_cb      on_headers_complete;
     nullptr,            // llhttp_data_cb on_body;
     htp_msg_completecb, // llhttp_cb      on_message_complete;
-    nullptr,            // llhttp_cb      on_chunk_header
-    nullptr,            // llhttp_cb      on_chunk_complete
+    nullptr,            // llhttp_cb      on_url_complete;
+    nullptr,            // llhttp_cb      on_status_complete;
+    nullptr,            // llhttp_cb      on_method_complete;
+    nullptr,            // llhttp_cb      on_version_complete;
+    nullptr,            // llhttp_cb      on_header_field_complete;
+    nullptr,            // llhttp_cb      on_header_value_complete;
+    nullptr,            // llhttp_cb      on_chunk_extension_name_complete;
+    nullptr,            // llhttp_cb      on_chunk_extension_value_complete;
+    nullptr,            // llhttp_cb      on_chunk_header;
+    nullptr,            // llhttp_cb      on_chunk_complete;
+    nullptr,            // llhttp_cb      on_reset;
 };
 } // namespace
 
 namespace {
 int submit_request(HttpClient *client, const Headers &headers, Request *req) {
-  auto path = req->make_reqpath();
   auto scheme = util::get_uri_field(req->uri.c_str(), req->u, UF_SCHEMA);
   auto build_headers = Headers{{":method", req->data_prd ? "POST" : "GET"},
-                               {":path", path},
+                               {":path", req->make_reqpath()},
                                {":scheme", scheme.str()},
                                {":authority", client->hostport},
                                {"accept", "*/*"},
@@ -676,7 +690,6 @@ int HttpClient::initiate_connection() {
         return -1;
       }
 
-      SSL_set_fd(ssl, fd);
       SSL_set_connect_state(ssl);
 
       // If the user overrode the :authority or host header, use that
@@ -684,16 +697,10 @@ int HttpClient::initiate_connection() {
       const auto &host_string =
           config.host_override.empty() ? host : config.host_override;
 
-#if LIBRESSL_2_7_API ||                                                        \
-    (!LIBRESSL_IN_USE && OPENSSL_VERSION_NUMBER >= 0x10002000L) ||             \
-    defined(OPENSSL_IS_BORINGSSL)
       auto param = SSL_get0_param(ssl);
       X509_VERIFY_PARAM_set_hostflags(param, 0);
       X509_VERIFY_PARAM_set1_host(param, host_string.c_str(),
                                   host_string.size());
-#endif // LIBRESSL_2_7_API || (!LIBRESSL_IN_USE &&
-       // OPENSSL_VERSION_NUMBER >= 0x10002000L) ||
-       // defined(OPENSSL_IS_BORINGSSL)
       SSL_set_verify(ssl, SSL_VERIFY_PEER, verify_cb);
 
       if (!util::numeric_host(host_string.c_str())) {
@@ -877,6 +884,8 @@ int HttpClient::connected() {
   ev_timer_stop(loop, &wt);
 
   if (ssl) {
+    SSL_set_fd(ssl, fd);
+
     readfn = &HttpClient::tls_handshake;
     writefn = &HttpClient::tls_handshake;
 
@@ -933,6 +942,12 @@ size_t populate_settings(nghttp2_settings_entry *iv) {
     ++niv;
   }
 
+  if (config.no_rfc7540_pri) {
+    iv[niv].settings_id = NGHTTP2_SETTINGS_NO_RFC7540_PRIORITIES;
+    iv[niv].value = 1;
+    ++niv;
+  }
+
   return niv;
 }
 } // namespace
@@ -978,7 +993,7 @@ int HttpClient::on_upgrade_connect() {
   auto headers = Headers{{"host", hostport},
                          {"connection", "Upgrade, HTTP2-Settings"},
                          {"upgrade", NGHTTP2_CLEARTEXT_PROTO_VERSION_ID},
-                         {"http2-settings", token68},
+                         {"http2-settings", std::move(token68)},
                          {"accept", "*/*"},
                          {"user-agent", "nghttp2/" NGHTTP2_VERSION}};
   auto initial_headerslen = headers.size();
@@ -1100,28 +1115,19 @@ int HttpClient::connection_made() {
   }
 
   if (ssl) {
-    // Check NPN or ALPN result
+    // Check ALPN result
     const unsigned char *next_proto = nullptr;
     unsigned int next_proto_len;
-#ifndef OPENSSL_NO_NEXTPROTONEG
-    SSL_get0_next_proto_negotiated(ssl, &next_proto, &next_proto_len);
-#endif // !OPENSSL_NO_NEXTPROTONEG
-    for (int i = 0; i < 2; ++i) {
-      if (next_proto) {
-        auto proto = StringRef{next_proto, next_proto_len};
-        if (config.verbose) {
-          std::cout << "The negotiated protocol: " << proto << std::endl;
-        }
-        if (!util::check_h2_is_selected(proto)) {
-          next_proto = nullptr;
-        }
-        break;
+
+    SSL_get0_alpn_selected(ssl, &next_proto, &next_proto_len);
+    if (next_proto) {
+      auto proto = StringRef{next_proto, next_proto_len};
+      if (config.verbose) {
+        std::cout << "The negotiated protocol: " << proto << std::endl;
       }
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
-      SSL_get0_alpn_selected(ssl, &next_proto, &next_proto_len);
-#else  // OPENSSL_VERSION_NUMBER < 0x10002000L
-      break;
-#endif // OPENSSL_VERSION_NUMBER < 0x10002000L
+      if (!util::check_h2_is_selected(proto)) {
+        next_proto = nullptr;
+      }
     }
     if (!next_proto) {
       print_protocol_nego_error();
@@ -1681,8 +1687,9 @@ void update_html_parser(HttpClient *client, Request *req, const uint8_t *data,
       continue;
     }
 
-    auto link_port =
-        util::has_uri_field(u, UF_PORT) ? u.port : scheme == "https" ? 443 : 80;
+    auto link_port = util::has_uri_field(u, UF_PORT) ? u.port
+                     : scheme == "https"             ? 443
+                                                     : 80;
 
     if (port != link_port) {
       continue;
@@ -2230,32 +2237,6 @@ id  responseEnd requestStart  process code size request path)"
 }
 } // namespace
 
-#ifndef OPENSSL_NO_NEXTPROTONEG
-namespace {
-int client_select_next_proto_cb(SSL *ssl, unsigned char **out,
-                                unsigned char *outlen, const unsigned char *in,
-                                unsigned int inlen, void *arg) {
-  if (config.verbose) {
-    print_timer();
-    std::cout << "[NPN] server offers:" << std::endl;
-  }
-  for (unsigned int i = 0; i < inlen; i += in[i] + 1) {
-    if (config.verbose) {
-      std::cout << "          * ";
-      std::cout.write(reinterpret_cast<const char *>(&in[i + 1]), in[i]);
-      std::cout << std::endl;
-    }
-  }
-  if (!util::select_h2(const_cast<const unsigned char **>(out), outlen, in,
-                       inlen)) {
-    print_protocol_nego_error();
-    return SSL_TLSEXT_ERR_NOACK;
-  }
-  return SSL_TLSEXT_ERR_OK;
-}
-} // namespace
-#endif // !OPENSSL_NO_NEXTPROTONEG
-
 namespace {
 int communicate(
     const std::string &scheme, const std::string &host, uint16_t port,
@@ -2267,7 +2248,7 @@ int communicate(
   auto loop = EV_DEFAULT;
   SSL_CTX *ssl_ctx = nullptr;
   if (scheme == "https") {
-    ssl_ctx = SSL_CTX_new(SSLv23_client_method());
+    ssl_ctx = SSL_CTX_new(TLS_client_method());
     if (!ssl_ctx) {
       std::cerr << "[ERROR] Failed to create SSL_CTX: "
                 << ERR_error_string(ERR_get_error(), nullptr) << std::endl;
@@ -2278,6 +2259,12 @@ int communicate(
     auto ssl_opts = (SSL_OP_ALL & ~SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS) |
                     SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION |
                     SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION;
+
+#ifdef SSL_OP_ENABLE_KTLS
+    if (config.ktls) {
+      ssl_opts |= SSL_OP_ENABLE_KTLS;
+    }
+#endif // SSL_OP_ENABLE_KTLS
 
     SSL_CTX_set_options(ssl_ctx, ssl_opts);
     SSL_CTX_set_mode(ssl_ctx, SSL_MODE_AUTO_RETRY);
@@ -2320,16 +2307,10 @@ int communicate(
         goto fin;
       }
     }
-#ifndef OPENSSL_NO_NEXTPROTONEG
-    SSL_CTX_set_next_proto_select_cb(ssl_ctx, client_select_next_proto_cb,
-                                     nullptr);
-#endif // !OPENSSL_NO_NEXTPROTONEG
 
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
     auto proto_list = util::get_default_alpn();
 
     SSL_CTX_set_alpn_protos(ssl_ctx, proto_list.data(), proto_list.size());
-#endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
   }
   {
     HttpClient client{callbacks, loop, ssl_ctx};
@@ -2747,6 +2728,9 @@ Options:
   -y, --no-verify-peer
               Suppress  warning  on  server  certificate  verification
               failure.
+  --ktls      Enable ktls.
+  --no-rfc7540-pri
+              Disable RFC7540 priorities.
   --version   Display version information and exit.
   -h, --help  Display this help and exit.
 
@@ -2764,8 +2748,6 @@ Options:
 } // namespace
 
 int main(int argc, char **argv) {
-  tls::libssl_init();
-
   bool color = false;
   while (1) {
     static int flag = 0;
@@ -2802,6 +2784,8 @@ int main(int argc, char **argv) {
         {"max-concurrent-streams", required_argument, &flag, 12},
         {"expect-continue", no_argument, &flag, 13},
         {"encoder-header-table-size", required_argument, &flag, 14},
+        {"ktls", no_argument, &flag, 15},
+        {"no-rfc7540-pri", no_argument, &flag, 16},
         {nullptr, 0, nullptr, 0}};
     int option_index = 0;
     int c =
@@ -2811,33 +2795,43 @@ int main(int argc, char **argv) {
       break;
     }
     switch (c) {
-    case 'M':
+    case 'M': {
       // peer-max-concurrent-streams option
-      config.peer_max_concurrent_streams = strtoul(optarg, nullptr, 10);
+      auto n = util::parse_uint(optarg);
+      if (n == -1) {
+        std::cerr << "-M: Bad option value: " << optarg << std::endl;
+        exit(EXIT_FAILURE);
+      }
+      config.peer_max_concurrent_streams = n;
       break;
+    }
     case 'O':
       config.remote_name = true;
       break;
     case 'h':
       print_help(std::cout);
       exit(EXIT_SUCCESS);
-    case 'b':
-      config.padding = strtol(optarg, nullptr, 10);
+    case 'b': {
+      auto n = util::parse_uint(optarg);
+      if (n == -1) {
+        std::cerr << "-b: Bad option value: " << optarg << std::endl;
+        exit(EXIT_FAILURE);
+      }
+      config.padding = n;
       break;
+    }
     case 'n':
       config.null_out = true;
       break;
     case 'p': {
-      errno = 0;
-      auto n = strtoul(optarg, nullptr, 10);
-      if (errno == 0 && NGHTTP2_MIN_WEIGHT <= n && n <= NGHTTP2_MAX_WEIGHT) {
-        config.weight.push_back(n);
-      } else {
+      auto n = util::parse_uint(optarg);
+      if (n == -1 || NGHTTP2_MIN_WEIGHT > n || n > NGHTTP2_MAX_WEIGHT) {
         std::cerr << "-p: specify the integer in the range ["
                   << NGHTTP2_MIN_WEIGHT << ", " << NGHTTP2_MAX_WEIGHT
                   << "], inclusive" << std::endl;
         exit(EXIT_FAILURE);
       }
+      config.weight.push_back(n);
       break;
     }
     case 'r':
@@ -2863,20 +2857,17 @@ int main(int argc, char **argv) {
       break;
     case 'w':
     case 'W': {
-      errno = 0;
-      char *endptr = nullptr;
-      unsigned long int n = strtoul(optarg, &endptr, 10);
-      if (errno == 0 && *endptr == '\0' && n < 31) {
-        if (c == 'w') {
-          config.window_bits = n;
-        } else {
-          config.connection_window_bits = n;
-        }
-      } else {
+      auto n = util::parse_uint(optarg);
+      if (n == -1 || n > 30) {
         std::cerr << "-" << static_cast<char>(c)
                   << ": specify the integer in the range [0, 30], inclusive"
                   << std::endl;
         exit(EXIT_FAILURE);
+      }
+      if (c == 'w') {
+        config.window_bits = n;
+      } else {
+        config.connection_window_bits = n;
       }
       break;
     }
@@ -2918,9 +2909,15 @@ int main(int argc, char **argv) {
     case 'd':
       config.datafile = optarg;
       break;
-    case 'm':
-      config.multiply = strtoul(optarg, nullptr, 10);
+    case 'm': {
+      auto n = util::parse_uint(optarg);
+      if (n == -1) {
+        std::cerr << "-m: Bad option value: " << optarg << std::endl;
+        exit(EXIT_FAILURE);
+      }
+      config.multiply = n;
       break;
+    }
     case 'c': {
       auto n = util::parse_uint_with_unit(optarg);
       if (n == -1) {
@@ -3004,10 +3001,17 @@ int main(int argc, char **argv) {
         // no-push option
         config.no_push = true;
         break;
-      case 12:
+      case 12: {
         // max-concurrent-streams option
-        config.max_concurrent_streams = strtoul(optarg, nullptr, 10);
+        auto n = util::parse_uint(optarg);
+        if (n == -1) {
+          std::cerr << "--max-concurrent-streams: Bad option value: " << optarg
+                    << std::endl;
+          exit(EXIT_FAILURE);
+        }
+        config.max_concurrent_streams = n;
         break;
+      }
       case 13:
         // expect-continue option
         config.expect_continue = true;
@@ -3029,6 +3033,14 @@ int main(int argc, char **argv) {
         config.encoder_header_table_size = n;
         break;
       }
+      case 15:
+        // ktls option
+        config.ktls = true;
+        break;
+      case 16:
+        // no-rfc7540-pri option
+        config.no_rfc7540_pri = true;
+        break;
       }
       break;
     default:

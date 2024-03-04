@@ -24,6 +24,8 @@
  */
 #include "shrpx_http_downstream_connection.h"
 
+#include <openssl/rand.h>
+
 #include "shrpx_client_handler.h"
 #include "shrpx_upstream.h"
 #include "shrpx_downstream.h"
@@ -264,13 +266,26 @@ constexpr llhttp_settings_t htp_hooks = {
     htp_msg_begincb,     // llhttp_cb      on_message_begin;
     nullptr,             // llhttp_data_cb on_url;
     nullptr,             // llhttp_data_cb on_status;
+    nullptr,             // llhttp_data_cb on_method;
+    nullptr,             // llhttp_data_cb on_version;
     htp_hdr_keycb,       // llhttp_data_cb on_header_field;
     htp_hdr_valcb,       // llhttp_data_cb on_header_value;
+    nullptr,             // llhttp_data_cb on_chunk_extension_name;
+    nullptr,             // llhttp_data_cb on_chunk_extension_value;
     htp_hdrs_completecb, // llhttp_cb      on_headers_complete;
     htp_bodycb,          // llhttp_data_cb on_body;
     htp_msg_completecb,  // llhttp_cb      on_message_complete;
-    nullptr,             // llhttp_cb      on_chunk_header
-    nullptr,             // llhttp_cb      on_chunk_complete
+    nullptr,             // llhttp_cb      on_url_complete;
+    nullptr,             // llhttp_cb      on_status_complete;
+    nullptr,             // llhttp_cb      on_method_complete;
+    nullptr,             // llhttp_cb      on_version_complete;
+    nullptr,             // llhttp_cb      on_header_field_complete;
+    nullptr,             // llhttp_cb      on_header_value_complete;
+    nullptr,             // llhttp_cb      on_chunk_extension_name_complete;
+    nullptr,             // llhttp_cb      on_chunk_extension_value_complete;
+    nullptr,             // llhttp_cb      on_chunk_header;
+    nullptr,             // llhttp_cb      on_chunk_complete;
+    nullptr,             // llhttp_cb      on_reset;
 };
 } // namespace
 
@@ -435,7 +450,7 @@ int HttpDownstreamConnection::initiate_connection() {
     ev_set_cb(&conn_.rt, timeoutcb);
     if (conn_.read_timeout < group_->shared_addr->timeout.read) {
       conn_.read_timeout = group_->shared_addr->timeout.read;
-      conn_.last_read = ev_now(conn_.loop);
+      conn_.last_read = std::chrono::steady_clock::now();
     } else {
       conn_.again_rt(group_->shared_addr->timeout.read);
     }
@@ -521,7 +536,9 @@ int HttpDownstreamConnection::push_request_headers() {
       (xffconf.strip_incoming ? http2::HDOP_STRIP_X_FORWARDED_FOR : 0) |
       (xfpconf.strip_incoming ? http2::HDOP_STRIP_X_FORWARDED_PROTO : 0) |
       (earlydataconf.strip_incoming ? http2::HDOP_STRIP_EARLY_DATA : 0) |
-      (req.http_major == 2 ? http2::HDOP_STRIP_SEC_WEBSOCKET_KEY : 0);
+      ((req.http_major == 3 || req.http_major == 2)
+           ? http2::HDOP_STRIP_SEC_WEBSOCKET_KEY
+           : 0);
 
   http2::build_http1_headers_from_headers(buf, req.fs.headers(), build_flags);
 
@@ -541,10 +558,11 @@ int HttpDownstreamConnection::push_request_headers() {
   }
 
   if (req.connect_proto == ConnectProto::WEBSOCKET) {
-    if (req.http_major == 2) {
+    if (req.http_major == 3 || req.http_major == 2) {
       std::array<uint8_t, 16> nonce;
-      util::random_bytes(std::begin(nonce), std::end(nonce),
-                         worker_->get_randgen());
+      if (RAND_bytes(nonce.data(), nonce.size()) != 1) {
+        return -1;
+      }
       auto iov = make_byte_ref(balloc, base64::encode_length(nonce.size()) + 1);
       auto p = base64::encode(std::begin(nonce), std::end(nonce), iov.base);
       *p = '\0';
@@ -578,13 +596,13 @@ int HttpDownstreamConnection::push_request_headers() {
   auto upstream = downstream_->get_upstream();
   auto handler = upstream->get_client_handler();
 
-#if OPENSSL_1_1_1_API
+#if defined(NGHTTP2_GENUINE_OPENSSL) || defined(NGHTTP2_OPENSSL_IS_BORINGSSL)
   auto conn = handler->get_connection();
 
   if (conn->tls.ssl && !SSL_is_init_finished(conn->tls.ssl)) {
     buf->append("Early-Data: 1\r\n");
   }
-#endif // OPENSSL_1_1_1_API
+#endif // NGHTTP2_GENUINE_OPENSSL || NGHTTP2_OPENSSL_IS_BORINGSSL
 
   auto fwd =
       fwdconf.strip_incoming ? nullptr : req.fs.header(http2::HD_FORWARDED);
@@ -857,7 +875,7 @@ void HttpDownstreamConnection::detach_downstream(Downstream *downstream) {
   ev_set_cb(&conn_.rt, idle_timeoutcb);
   if (conn_.read_timeout < downstreamconf.timeout.idle_read) {
     conn_.read_timeout = downstreamconf.timeout.idle_read;
-    conn_.last_read = ev_now(conn_.loop);
+    conn_.last_read = std::chrono::steady_clock::now();
   } else {
     conn_.again_rt(downstreamconf.timeout.idle_read);
   }
@@ -891,8 +909,7 @@ int htp_msg_begincb(llhttp_t *htp) {
   auto downstream = static_cast<Downstream *>(htp->data);
 
   if (downstream->get_response_state() != DownstreamState::INITIAL) {
-    llhttp_set_error_reason(htp, "HTTP message started when it shouldn't");
-    return HPE_USER;
+    return -1;
   }
 
   return 0;
@@ -907,6 +924,17 @@ int htp_hdrs_completecb(llhttp_t *htp) {
   const auto &req = downstream->request();
   auto &resp = downstream->response();
   int rv;
+
+  auto &balloc = downstream->get_block_allocator();
+
+  for (auto &kv : resp.fs.headers()) {
+    kv.value = util::rstrip(balloc, kv.value);
+
+    if (kv.token == http2::HD_TRANSFER_ENCODING &&
+        !http2::check_transfer_encoding(kv.value)) {
+      return -1;
+    }
+  }
 
   auto config = get_config();
   auto &loggingconf = config->logging;
@@ -981,6 +1009,16 @@ int htp_hdrs_completecb(llhttp_t *htp) {
   resp.connection_close = !llhttp_should_keep_alive(htp);
   downstream->set_response_state(DownstreamState::HEADER_COMPLETE);
   downstream->inspect_http1_response();
+
+  if (htp->flags & F_CHUNKED) {
+    downstream->set_chunked_response(true);
+  }
+
+  auto transfer_encoding = resp.fs.header(http2::HD_TRANSFER_ENCODING);
+  if (transfer_encoding && !downstream->get_chunked_response()) {
+    resp.connection_close = true;
+  }
+
   if (downstream->get_upgraded()) {
     // content-length must be ignored for upgraded connection.
     resp.fs.content_length = -1;
@@ -1134,6 +1172,12 @@ int htp_bodycb(llhttp_t *htp, const char *data, size_t len) {
 namespace {
 int htp_msg_completecb(llhttp_t *htp) {
   auto downstream = static_cast<Downstream *>(htp->data);
+  auto &resp = downstream->response();
+  auto &balloc = downstream->get_block_allocator();
+
+  for (auto &kv : resp.fs.trailers()) {
+    kv.value = util::rstrip(balloc, kv.value);
+  }
 
   // llhttp does not treat "200 connection established" response
   // against CONNECT request, and in that case, this function is not
@@ -1202,7 +1246,7 @@ int HttpDownstreamConnection::write_first() {
 }
 
 int HttpDownstreamConnection::read_clear() {
-  conn_.last_read = ev_now(conn_.loop);
+  conn_.last_read = std::chrono::steady_clock::now();
 
   std::array<uint8_t, 16_k> buf;
   int rv;
@@ -1214,6 +1258,18 @@ int HttpDownstreamConnection::read_clear() {
     }
 
     if (nread < 0) {
+      if (nread == SHRPX_ERR_EOF && !downstream_->get_upgraded()) {
+        auto htperr = llhttp_finish(&response_htp_);
+        if (htperr != HPE_OK) {
+          if (LOG_ENABLED(INFO)) {
+            DCLOG(INFO, this) << "HTTP response ended prematurely: "
+                              << llhttp_errno_name(htperr);
+          }
+
+          return -1;
+        }
+      }
+
       return nread;
     }
 
@@ -1229,7 +1285,7 @@ int HttpDownstreamConnection::read_clear() {
 }
 
 int HttpDownstreamConnection::write_clear() {
-  conn_.last_read = ev_now(conn_.loop);
+  conn_.last_read = std::chrono::steady_clock::now();
 
   auto upstream = downstream_->get_upstream();
   auto input = downstream_->get_request_buf();
@@ -1277,7 +1333,7 @@ int HttpDownstreamConnection::write_clear() {
 int HttpDownstreamConnection::tls_handshake() {
   ERR_clear_error();
 
-  conn_.last_read = ev_now(conn_.loop);
+  conn_.last_read = std::chrono::steady_clock::now();
 
   auto rv = conn_.tls_handshake();
   if (rv == SHRPX_ERR_INPROGRESS) {
@@ -1319,7 +1375,7 @@ int HttpDownstreamConnection::tls_handshake() {
 }
 
 int HttpDownstreamConnection::read_tls() {
-  conn_.last_read = ev_now(conn_.loop);
+  conn_.last_read = std::chrono::steady_clock::now();
 
   ERR_clear_error();
 
@@ -1333,6 +1389,18 @@ int HttpDownstreamConnection::read_tls() {
     }
 
     if (nread < 0) {
+      if (nread == SHRPX_ERR_EOF && !downstream_->get_upgraded()) {
+        auto htperr = llhttp_finish(&response_htp_);
+        if (htperr != HPE_OK) {
+          if (LOG_ENABLED(INFO)) {
+            DCLOG(INFO, this) << "HTTP response ended prematurely: "
+                              << llhttp_errno_name(htperr);
+          }
+
+          return -1;
+        }
+      }
+
       return nread;
     }
 
@@ -1348,7 +1416,7 @@ int HttpDownstreamConnection::read_tls() {
 }
 
 int HttpDownstreamConnection::write_tls() {
-  conn_.last_read = ev_now(conn_.loop);
+  conn_.last_read = std::chrono::steady_clock::now();
 
   ERR_clear_error();
 
