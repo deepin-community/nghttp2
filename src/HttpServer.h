@@ -82,6 +82,8 @@ struct Config {
   bool hexdump;
   bool echo_upload;
   bool no_content_length;
+  bool ktls;
+  bool no_rfc7540_pri;
   Config();
   ~Config();
 };
@@ -90,7 +92,8 @@ class Http2Handler;
 
 struct FileEntry {
   FileEntry(std::string path, int64_t length, int64_t mtime, int fd,
-            const std::string *content_type, ev_tstamp last_valid,
+            const std::string *content_type,
+            const std::chrono::steady_clock::time_point &last_valid,
             bool stale = false)
       : path(std::move(path)),
         length(length),
@@ -106,7 +109,7 @@ struct FileEntry {
   std::multimap<std::string, std::unique_ptr<FileEntry>>::iterator it;
   int64_t length;
   int64_t mtime;
-  ev_tstamp last_valid;
+  std::chrono::steady_clock::time_point last_valid;
   const std::string *content_type;
   FileEntry *dlnext, *dlprev;
   int fd;
@@ -164,7 +167,7 @@ public:
   int on_read();
   int on_write();
   int connection_made();
-  int verify_npn_result();
+  int verify_alpn_result();
 
   int submit_file_response(const StringRef &status, Stream *stream,
                            time_t last_modified, off_t file_length,
@@ -242,7 +245,7 @@ private:
 };
 
 ssize_t file_read_callback(nghttp2_session *session, int32_t stream_id,
-                           uint8_t *buf, size_t length, int *eof,
+                           uint8_t *buf, size_t length, uint32_t *data_flags,
                            nghttp2_data_source *source, void *user_data);
 
 } // namespace nghttp2

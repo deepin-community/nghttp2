@@ -1,3 +1,99 @@
+nghttp2 (1.59.0-1) unstable; urgency=medium
+
+  * New upstream version 1.59.0
+
+ -- Tomasz Buchert <tomasz@debian.org>  Thu, 01 Feb 2024 23:43:52 +0100
+
+nghttp2 (1.58.0-1) unstable; urgency=medium
+
+  * New upstream version 1.58.0
+
+ -- Tomasz Buchert <tomasz@debian.org>  Sat, 04 Nov 2023 23:21:22 +0100
+
+nghttp2 (1.57.0-1) unstable; urgency=medium
+
+  * New upstream version 1.57.0
+  * Fixes HTTP/2 Rapid Reset advisory
+
+ -- Tomasz Buchert <tomasz@debian.org>  Thu, 12 Oct 2023 23:19:30 +0200
+
+nghttp2 (1.56.0-1) unstable; urgency=medium
+
+  * New upstream version 1.56.0
+
+ -- Tomasz Buchert <tomasz@debian.org>  Tue, 05 Sep 2023 08:39:33 +0200
+
+nghttp2 (1.55.1-1) unstable; urgency=medium
+
+  * New upstream version 1.55.1 (1.55.0 skipped intentionally)
+
+ -- Tomasz Buchert <tomasz@debian.org>  Wed, 19 Jul 2023 08:03:17 +0200
+
+nghttp2 (1.54.0-1) unstable; urgency=medium
+
+  * New upstream version 1.54.0
+
+ -- Tomasz Buchert <tomasz@debian.org>  Sat, 10 Jun 2023 09:25:26 +0200
+
+nghttp2 (1.53.0-1) unstable; urgency=medium
+
+  * New upstream version 1.53.0
+
+ -- Tomasz Buchert <tomasz@debian.org>  Sun, 21 May 2023 15:46:26 +0200
+
+nghttp2 (1.52.0-1) unstable; urgency=medium
+
+  * New upstream release 1.52.0
+  * Update standards version to 4.6.2, no changes needed.
+
+ -- Tomasz Buchert <tomasz@debian.org>  Mon, 20 Feb 2023 19:18:10 +0100
+
+nghttp2 (1.51.0-1) unstable; urgency=medium
+
+  [ Debian Janitor ]
+  * Set upstream metadata fields: Bug-Database, Bug-Submit, Repository,
+    Repository-Browse.
+  * Remove unused license definitions for SIL-OFL-1.1.
+
+  [ Tomasz Buchert ]
+  * New upstream release 1.51.0
+
+ -- Tomasz Buchert <tomasz@debian.org>  Sun, 11 Dec 2022 11:07:43 +0100
+
+nghttp2 (1.50.0-1) unstable; urgency=medium
+
+  * New upstream release 1.50.0
+
+ -- Tomasz Buchert <tomasz@debian.org>  Sun, 25 Sep 2022 16:20:38 +0200
+
+nghttp2 (1.49.0-1) unstable; urgency=medium
+
+  * New upstream release 1.49.0
+
+ -- Tomasz Buchert <tomasz@debian.org>  Thu, 25 Aug 2022 11:45:41 +0200
+
+nghttp2 (1.48.0-2) unstable; urgency=medium
+
+  [ Helmut Grohne ]
+  * Mark libnghttp2-dev Multi-Arch: same. (Closes: #996415)
+  * Mark nghttp2 Multi-Arch: foreign.
+  * Drop unused Build-Depends: libevent-dev. (Closes: #981602)
+
+ -- Tomasz Buchert <tomasz@debian.org>  Sat, 20 Aug 2022 23:49:45 +0200
+
+nghttp2 (1.48.0-1) unstable; urgency=medium
+
+  * New upstream release 1.48.0
+
+ -- Tomasz Buchert <tomasz@debian.org>  Sat, 23 Jul 2022 13:03:05 +0200
+
+nghttp2 (1.47.0-1) unstable; urgency=medium
+
+  * New upstream release 1.47.0
+  * Update symbols file
+
+ -- Tomasz Buchert <tomasz@debian.org>  Sat, 30 Apr 2022 14:30:08 +0200
+
 nghttp2 (1.43.0-1) unstable; urgency=medium
 
   * New upstream release 1.43.0

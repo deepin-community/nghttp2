@@ -106,22 +106,6 @@ struct app_context {
   struct event_base *evbase;
 };
 
-static unsigned char next_proto_list[256];
-static size_t next_proto_list_len;
-
-#ifndef OPENSSL_NO_NEXTPROTONEG
-static int next_proto_cb(SSL *ssl, const unsigned char **data,
-                         unsigned int *len, void *arg) {
-  (void)ssl;
-  (void)arg;
-
-  *data = next_proto_list;
-  *len = (unsigned int)next_proto_list_len;
-  return SSL_TLSEXT_ERR_OK;
-}
-#endif /* !OPENSSL_NO_NEXTPROTONEG */
-
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
 static int alpn_select_proto_cb(SSL *ssl, const unsigned char **out,
                                 unsigned char *outlen, const unsigned char *in,
                                 unsigned int inlen, void *arg) {
@@ -129,7 +113,7 @@ static int alpn_select_proto_cb(SSL *ssl, const unsigned char **out,
   (void)ssl;
   (void)arg;
 
-  rv = nghttp2_select_next_protocol((unsigned char **)out, outlen, in, inlen);
+  rv = nghttp2_select_alpn(out, outlen, in, inlen);
 
   if (rv != 1) {
     return SSL_TLSEXT_ERR_NOACK;
@@ -137,14 +121,12 @@ static int alpn_select_proto_cb(SSL *ssl, const unsigned char **out,
 
   return SSL_TLSEXT_ERR_OK;
 }
-#endif /* OPENSSL_VERSION_NUMBER >= 0x10002000L */
 
 /* Create SSL_CTX. */
 static SSL_CTX *create_ssl_ctx(const char *key_file, const char *cert_file) {
   SSL_CTX *ssl_ctx;
-  EC_KEY *ecdh;
 
-  ssl_ctx = SSL_CTX_new(SSLv23_server_method());
+  ssl_ctx = SSL_CTX_new(TLS_server_method());
   if (!ssl_ctx) {
     errx(1, "Could not create SSL/TLS context: %s",
          ERR_error_string(ERR_get_error(), NULL));
@@ -153,14 +135,23 @@ static SSL_CTX *create_ssl_ctx(const char *key_file, const char *cert_file) {
                       SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
                           SSL_OP_NO_COMPRESSION |
                           SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION);
-
-  ecdh = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
-  if (!ecdh) {
-    errx(1, "EC_KEY_new_by_curv_name failed: %s",
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+  if (SSL_CTX_set1_curves_list(ssl_ctx, "P-256") != 1) {
+    errx(1, "SSL_CTX_set1_curves_list failed: %s",
          ERR_error_string(ERR_get_error(), NULL));
   }
-  SSL_CTX_set_tmp_ecdh(ssl_ctx, ecdh);
-  EC_KEY_free(ecdh);
+#else  /* !(OPENSSL_VERSION_NUMBER >= 0x30000000L) */
+  {
+    EC_KEY *ecdh;
+    ecdh = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+    if (!ecdh) {
+      errx(1, "EC_KEY_new_by_curv_name failed: %s",
+           ERR_error_string(ERR_get_error(), NULL));
+    }
+    SSL_CTX_set_tmp_ecdh(ssl_ctx, ecdh);
+    EC_KEY_free(ecdh);
+  }
+#endif /* !(OPENSSL_VERSION_NUMBER >= 0x30000000L) */
 
   if (SSL_CTX_use_PrivateKey_file(ssl_ctx, key_file, SSL_FILETYPE_PEM) != 1) {
     errx(1, "Could not read private key file %s", key_file);
@@ -169,18 +160,7 @@ static SSL_CTX *create_ssl_ctx(const char *key_file, const char *cert_file) {
     errx(1, "Could not read certificate file %s", cert_file);
   }
 
-  next_proto_list[0] = NGHTTP2_PROTO_VERSION_ID_LEN;
-  memcpy(&next_proto_list[1], NGHTTP2_PROTO_VERSION_ID,
-         NGHTTP2_PROTO_VERSION_ID_LEN);
-  next_proto_list_len = 1 + NGHTTP2_PROTO_VERSION_ID_LEN;
-
-#ifndef OPENSSL_NO_NEXTPROTONEG
-  SSL_CTX_set_next_protos_advertised_cb(ssl_ctx, next_proto_cb, NULL);
-#endif /* !OPENSSL_NO_NEXTPROTONEG */
-
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
   SSL_CTX_set_alpn_select_cb(ssl_ctx, alpn_select_proto_cb, NULL);
-#endif /* OPENSSL_VERSION_NUMBER >= 0x10002000L */
 
   return ssl_ctx;
 }
@@ -694,14 +674,7 @@ static void eventcb(struct bufferevent *bev, short events, void *ptr) {
 
     ssl = bufferevent_openssl_get_ssl(session_data->bev);
 
-#ifndef OPENSSL_NO_NEXTPROTONEG
-    SSL_get0_next_proto_negotiated(ssl, &alpn, &alpnlen);
-#endif /* !OPENSSL_NO_NEXTPROTONEG */
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
-    if (alpn == NULL) {
-      SSL_get0_alpn_selected(ssl, &alpn, &alpnlen);
-    }
-#endif /* OPENSSL_VERSION_NUMBER >= 0x10002000L */
+    SSL_get0_alpn_selected(ssl, &alpn, &alpnlen);
 
     if (alpn == NULL || alpnlen != 2 || memcmp("h2", alpn, 2) != 0) {
       fprintf(stderr, "%s h2 is not negotiated\n", session_data->client_addr);
@@ -808,9 +781,6 @@ int main(int argc, char **argv) {
   memset(&act, 0, sizeof(struct sigaction));
   act.sa_handler = SIG_IGN;
   sigaction(SIGPIPE, &act, NULL);
-
-  SSL_load_error_strings();
-  SSL_library_init();
 
   run(argv[1], argv[2], argv[3]);
   return 0;

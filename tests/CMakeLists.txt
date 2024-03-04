@@ -6,7 +6,6 @@ if(HAVE_CUNIT)
   include_directories(
     "${CMAKE_SOURCE_DIR}/lib/includes"
     "${CMAKE_SOURCE_DIR}/lib"
-    "${CMAKE_SOURCE_DIR}/src/includes"
     "${CMAKE_BINARY_DIR}/lib/includes"
     ${CUNIT_INCLUDE_DIRS}
   )
@@ -18,9 +17,12 @@ if(HAVE_CUNIT)
     nghttp2_stream_test.c
     nghttp2_session_test.c
     nghttp2_hd_test.c
-    nghttp2_npn_test.c
+    nghttp2_alpn_test.c
     nghttp2_helper_test.c
     nghttp2_buf_test.c
+    nghttp2_http_test.c
+    nghttp2_extpri_test.c
+    nghttp2_ratelim_test.c
   )
 
   add_executable(main EXCLUDE_FROM_ALL
@@ -49,10 +51,5 @@ if(HAVE_CUNIT)
     )
     add_test(failmalloc failmalloc)
     add_dependencies(check failmalloc)
-  endif()
-
-  if(ENABLE_APP)
-    # EXTRA_DIST = end_to_end.py
-    # TESTS += end_to_end.py
   endif()
 endif()

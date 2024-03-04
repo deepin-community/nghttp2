@@ -634,7 +634,11 @@ typedef enum {
    * The ORIGIN frame, which is defined by `RFC 8336
    * <https://tools.ietf.org/html/rfc8336>`_.
    */
-  NGHTTP2_ORIGIN = 0x0c
+  NGHTTP2_ORIGIN = 0x0c,
+  /**
+   * The PRIORITY_UPDATE frame, which is defined by :rfc:`9218`.
+   */
+  NGHTTP2_PRIORITY_UPDATE = 0x10
 } nghttp2_frame_type;
 
 /**
@@ -703,7 +707,11 @@ typedef enum {
    * SETTINGS_ENABLE_CONNECT_PROTOCOL
    * (`RFC 8441 <https://tools.ietf.org/html/rfc8441>`_)
    */
-  NGHTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL = 0x08
+  NGHTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL = 0x08,
+  /**
+   * SETTINGS_NO_RFC7540_PRIORITIES (:rfc:`9218`)
+   */
+  NGHTTP2_SETTINGS_NO_RFC7540_PRIORITIES = 0x09
 } nghttp2_settings_id;
 /* Note: If we add SETTINGS, update the capacity of
    NGHTTP2_INBOUND_NUM_IV as well */
@@ -1422,12 +1430,6 @@ typedef ssize_t (*nghttp2_recv_callback)(nghttp2_session *session, uint8_t *buf,
  * respectively.  The header name/value pairs are emitted via
  * :type:`nghttp2_on_header_callback`.
  *
- * For HEADERS, PUSH_PROMISE and DATA frames, this callback may be
- * called after stream is closed (see
- * :type:`nghttp2_on_stream_close_callback`).  The application should
- * check that stream is still alive using its own stream management or
- * :func:`nghttp2_session_get_stream_user_data()`.
- *
  * Only HEADERS and DATA frame can signal the end of incoming data.
  * If ``frame->hd.flags & NGHTTP2_FLAG_END_STREAM`` is nonzero, the
  * |frame| is the last frame from the remote peer in this stream.
@@ -1995,7 +1997,7 @@ typedef int (*nghttp2_on_extension_chunk_recv_callback)(
  * ``NULL``.  The |*payload| is available as ``frame->ext.payload`` in
  * :type:`nghttp2_on_frame_recv_callback`.  Therefore if application
  * can free that memory inside :type:`nghttp2_on_frame_recv_callback`
- * callback.  Of course, application has a liberty not ot use
+ * callback.  Of course, application has a liberty not to use
  * |*payload|, and do its own mechanism to process extension frames.
  *
  * To abort processing this extension frame, return
@@ -2693,6 +2695,11 @@ nghttp2_option_set_max_deflate_dynamic_table_size(nghttp2_option *option,
  * This option prevents the library from retaining closed streams to
  * maintain the priority tree.  If this option is set to nonzero,
  * applications can discard closed stream completely to save memory.
+ *
+ * If
+ * :enum:`nghttp2_settings_id.NGHTTP2_SETTINGS_NO_RFC7540_PRIORITIES`
+ * of value of 1 is submitted via `nghttp2_submit_settings()`, any
+ * closed streams are not retained regardless of this option.
  */
 NGHTTP2_EXTERN void nghttp2_option_set_no_closed_streams(nghttp2_option *option,
                                                          int val);
@@ -2718,6 +2725,53 @@ NGHTTP2_EXTERN void nghttp2_option_set_max_outbound_ack(nghttp2_option *option,
  */
 NGHTTP2_EXTERN void nghttp2_option_set_max_settings(nghttp2_option *option,
                                                     size_t val);
+
+/**
+ * @function
+ *
+ * This option, if set to nonzero, allows server to fallback to
+ * :rfc:`7540` priorities if SETTINGS_NO_RFC7540_PRIORITIES was not
+ * received from client, and server submitted
+ * :enum:`nghttp2_settings_id.NGHTTP2_SETTINGS_NO_RFC7540_PRIORITIES`
+ * = 1 via `nghttp2_submit_settings()`.  Most of the advanced
+ * functionality for RFC 7540 priorities are still disabled.  This
+ * fallback only enables the minimal feature set of RFC 7540
+ * priorities to deal with priority signaling from client.
+ *
+ * Client session ignores this option.
+ */
+NGHTTP2_EXTERN void
+nghttp2_option_set_server_fallback_rfc7540_priorities(nghttp2_option *option,
+                                                      int val);
+
+/**
+ * @function
+ *
+ * This option, if set to nonzero, turns off RFC 9113 leading and
+ * trailing white spaces validation against HTTP field value.  Some
+ * important fields, such as HTTP/2 pseudo header fields, are
+ * validated more strictly and this option does not apply to them.
+ */
+NGHTTP2_EXTERN void
+nghttp2_option_set_no_rfc9113_leading_and_trailing_ws_validation(
+    nghttp2_option *option, int val);
+
+/**
+ * @function
+ *
+ * This function sets the rate limit for the incoming stream reset
+ * (RST_STREAM frame).  It is server use only.  It is a token-bucket
+ * based rate limiter.  |burst| specifies the number of tokens that is
+ * initially available.  The maximum number of tokens is capped to
+ * this value.  |rate| specifies the number of tokens that are
+ * regenerated per second.  An incoming RST_STREAM consumes one token.
+ * If there is no token available, GOAWAY is sent to tear down the
+ * connection.  |burst| and |rate| default to 1000 and 33
+ * respectively.
+ */
+NGHTTP2_EXTERN void
+nghttp2_option_set_stream_reset_rate_limit(nghttp2_option *option,
+                                           uint64_t burst, uint64_t rate);
 
 /**
  * @function
@@ -3054,7 +3108,7 @@ NGHTTP2_EXTERN int nghttp2_session_recv(nghttp2_session *session);
  * @function
  *
  * Processes data |in| as an input from the remote endpoint.  The
- * |inlen| indicates the number of bytes in the |in|.
+ * |inlen| indicates the number of bytes to receive in the |in|.
  *
  * This function behaves like `nghttp2_session_recv()` except that it
  * does not use :type:`nghttp2_recv_callback` to receive data; the
@@ -3063,7 +3117,7 @@ NGHTTP2_EXTERN int nghttp2_session_recv(nghttp2_session *session);
  * are called in the same way as they are in `nghttp2_session_recv()`.
  *
  * In the current implementation, this function always tries to
- * processes all input data unless either an error occurs or
+ * processes |inlen| bytes of input data unless either an error occurs or
  * :enum:`nghttp2_error.NGHTTP2_ERR_PAUSE` is returned from
  * :type:`nghttp2_on_header_callback` or
  * :type:`nghttp2_on_data_chunk_recv_callback`.  If
@@ -3589,6 +3643,11 @@ NGHTTP2_EXTERN int nghttp2_session_consume_stream(nghttp2_session *session,
  * found, we use default priority instead of given |pri_spec|.  That
  * is make stream depend on root stream with weight 16.
  *
+ * If
+ * :enum:`nghttp2_settings_id.NGHTTP2_SETTINGS_NO_RFC7540_PRIORITIES`
+ * of value of 1 is submitted via `nghttp2_submit_settings()`, this
+ * function does nothing and returns 0.
+ *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
  *
@@ -3631,6 +3690,11 @@ nghttp2_session_change_stream_priority(nghttp2_session *session,
  * Otherwise, if stream denoted by ``pri_spec->stream_id`` is not
  * found, we use default priority instead of given |pri_spec|.  That
  * is make stream depend on root stream with weight 16.
+ *
+ * If
+ * :enum:`nghttp2_settings_id.NGHTTP2_SETTINGS_NO_RFC7540_PRIORITIES`
+ * of value of 1 is submitted via `nghttp2_submit_settings()`, this
+ * function does nothing and returns 0.
  *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
@@ -3836,6 +3900,11 @@ nghttp2_priority_spec_check_default(const nghttp2_priority_spec *pri_spec);
  * :macro:`NGHTTP2_MIN_WEIGHT`.  If it is strictly greater than
  * :macro:`NGHTTP2_MAX_WEIGHT`, it becomes
  * :macro:`NGHTTP2_MAX_WEIGHT`.
+ *
+ * If
+ * :enum:`nghttp2_settings_id.NGHTTP2_SETTINGS_NO_RFC7540_PRIORITIES`
+ * of value of 1 is received by a remote endpoint, |pri_spec| is
+ * ignored, and treated as if ``NULL`` is specified.
  *
  * The |nva| is an array of name/value pair :type:`nghttp2_nv` with
  * |nvlen| elements.  The application is responsible to include
@@ -4057,6 +4126,11 @@ NGHTTP2_EXTERN int nghttp2_submit_trailer(nghttp2_session *session,
  * :macro:`NGHTTP2_MIN_WEIGHT`.  If it is strictly greater than
  * :macro:`NGHTTP2_MAX_WEIGHT`, it becomes :macro:`NGHTTP2_MAX_WEIGHT`.
  *
+ * If
+ * :enum:`nghttp2_settings_id.NGHTTP2_SETTINGS_NO_RFC7540_PRIORITIES`
+ * of value of 1 is received by a remote endpoint, |pri_spec| is
+ * ignored, and treated as if ``NULL`` is specified.
+ *
  * The |nva| is an array of name/value pair :type:`nghttp2_nv` with
  * |nvlen| elements.  The application is responsible to include
  * required pseudo-header fields (header field whose name starts with
@@ -4184,6 +4258,11 @@ NGHTTP2_EXTERN int nghttp2_submit_data(nghttp2_session *session, uint8_t flags,
  * :macro:`NGHTTP2_MAX_WEIGHT`, it becomes
  * :macro:`NGHTTP2_MAX_WEIGHT`.
  *
+ * If
+ * :enum:`nghttp2_settings_id.NGHTTP2_SETTINGS_NO_RFC7540_PRIORITIES`
+ * of value of 1 is received by a remote endpoint, this function does
+ * nothing and returns 0.
+ *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
  *
@@ -4197,6 +4276,61 @@ NGHTTP2_EXTERN int
 nghttp2_submit_priority(nghttp2_session *session, uint8_t flags,
                         int32_t stream_id,
                         const nghttp2_priority_spec *pri_spec);
+
+/**
+ * @macro
+ *
+ * :macro:`NGHTTP2_EXTPRI_DEFAULT_URGENCY` is the default urgency
+ * level for :rfc:`9218` extensible priorities.
+ */
+#define NGHTTP2_EXTPRI_DEFAULT_URGENCY 3
+
+/**
+ * @macro
+ *
+ * :macro:`NGHTTP2_EXTPRI_URGENCY_HIGH` is the highest urgency level
+ * for :rfc:`9218` extensible priorities.
+ */
+#define NGHTTP2_EXTPRI_URGENCY_HIGH 0
+
+/**
+ * @macro
+ *
+ * :macro:`NGHTTP2_EXTPRI_URGENCY_LOW` is the lowest urgency level for
+ * :rfc:`9218` extensible priorities.
+ */
+#define NGHTTP2_EXTPRI_URGENCY_LOW 7
+
+/**
+ * @macro
+ *
+ * :macro:`NGHTTP2_EXTPRI_URGENCY_LEVELS` is the number of urgency
+ * levels for :rfc:`9218` extensible priorities.
+ */
+#define NGHTTP2_EXTPRI_URGENCY_LEVELS (NGHTTP2_EXTPRI_URGENCY_LOW + 1)
+
+/**
+ * @struct
+ *
+ * :type:`nghttp2_extpri` is :rfc:`9218` extensible priorities
+ * specification for a stream.
+ */
+typedef struct nghttp2_extpri {
+  /**
+   * :member:`urgency` is the urgency of a stream, it must be in
+   * [:macro:`NGHTTP2_EXTPRI_URGENCY_HIGH`,
+   * :macro:`NGHTTP2_EXTPRI_URGENCY_LOW`], inclusive, and 0 is the
+   * highest urgency.
+   */
+  uint32_t urgency;
+  /**
+   * :member:`inc` indicates that a content can be processed
+   * incrementally or not.  If inc is 0, it cannot be processed
+   * incrementally.  If inc is 1, it can be processed incrementally.
+   * Other value is not permitted.
+   */
+  int inc;
+} nghttp2_extpri;
 
 /**
  * @function
@@ -4723,6 +4857,157 @@ NGHTTP2_EXTERN int nghttp2_submit_origin(nghttp2_session *session,
                                          size_t nov);
 
 /**
+ * @struct
+ *
+ * The payload of PRIORITY_UPDATE frame.  PRIORITY_UPDATE frame is a
+ * non-critical extension to HTTP/2.  If this frame is received, and
+ * `nghttp2_option_set_user_recv_extension_type()` is not set, and
+ * `nghttp2_option_set_builtin_recv_extension_type()` is set for
+ * :enum:`nghttp2_frame_type.NGHTTP2_PRIORITY_UPDATE`,
+ * ``nghttp2_extension.payload`` will point to this struct.
+ *
+ * It has the following members:
+ */
+typedef struct {
+  /**
+   * The stream ID of the stream whose priority is updated.
+   */
+  int32_t stream_id;
+  /**
+   * The pointer to Priority field value.  It is not necessarily
+   * NULL-terminated.
+   */
+  uint8_t *field_value;
+  /**
+   * The length of the :member:`field_value`.
+   */
+  size_t field_value_len;
+} nghttp2_ext_priority_update;
+
+/**
+ * @function
+ *
+ * Submits PRIORITY_UPDATE frame.
+ *
+ * PRIORITY_UPDATE frame is a non-critical extension to HTTP/2, and
+ * defined in :rfc:`9218#section-7.1`.
+ *
+ * The |flags| is currently ignored and should be
+ * :enum:`nghttp2_flag.NGHTTP2_FLAG_NONE`.
+ *
+ * The |stream_id| is the ID of stream which is prioritized.  The
+ * |field_value| points to the Priority field value.  The
+ * |field_value_len| is the length of the Priority field value.
+ *
+ * If this function is called by server,
+ * :enum:`nghttp2_error.NGHTTP2_ERR_INVALID_STATE` is returned.
+ *
+ * If
+ * :enum:`nghttp2_settings_id.NGHTTP2_SETTINGS_NO_RFC7540_PRIORITIES`
+ * of value of 0 is received by a remote endpoint (or it is omitted),
+ * this function does nothing and returns 0.
+ *
+ * This function returns 0 if it succeeds, or one of the following
+ * negative error codes:
+ *
+ * :enum:`nghttp2_error.NGHTTP2_ERR_NOMEM`
+ *     Out of memory
+ * :enum:`nghttp2_error.NGHTTP2_ERR_INVALID_STATE`
+ *     The function is called from server side session
+ * :enum:`nghttp2_error.NGHTTP2_ERR_INVALID_ARGUMENT`
+ *     The |field_value_len| is larger than 16380; or |stream_id| is
+ *     0.
+ */
+NGHTTP2_EXTERN int nghttp2_submit_priority_update(nghttp2_session *session,
+                                                  uint8_t flags,
+                                                  int32_t stream_id,
+                                                  const uint8_t *field_value,
+                                                  size_t field_value_len);
+
+/**
+ * @function
+ *
+ * Changes the priority of the existing stream denoted by |stream_id|.
+ * The new priority is |extpri|.  This function is meant to be used by
+ * server for :rfc:`9218` extensible prioritization scheme.
+ *
+ * If |session| is initialized as client, this function returns
+ * :enum:`nghttp2_error.NGHTTP2_ERR_INVALID_STATE`.  For client, use
+ * `nghttp2_submit_priority_update()` instead.
+ *
+ * If :member:`extpri->urgency <nghttp2_extpri.urgency>` is out of
+ * bound, it is set to :macro:`NGHTTP2_EXTPRI_URGENCY_LOW`.
+ *
+ * If |ignore_client_signal| is nonzero, server starts to ignore
+ * client priority signals for this stream.
+ *
+ * If
+ * :enum:`nghttp2_settings_id.NGHTTP2_SETTINGS_NO_RFC7540_PRIORITIES`
+ * of value of 1 is not submitted via `nghttp2_submit_settings()`,
+ * this function does nothing and returns 0.
+ *
+ * :enum:`nghttp2_error.NGHTTP2_ERR_NOMEM`
+ *     Out of memory.
+ * :enum:`nghttp2_error.NGHTTP2_ERR_INVALID_STATE`
+ *     The |session| is initialized as client.
+ * :enum:`nghttp2_error.NGHTTP2_ERR_INVALID_ARGUMENT`
+ *     |stream_id| is zero; or a stream denoted by |stream_id| is not
+ *     found.
+ */
+NGHTTP2_EXTERN int nghttp2_session_change_extpri_stream_priority(
+    nghttp2_session *session, int32_t stream_id, const nghttp2_extpri *extpri,
+    int ignore_client_signal);
+
+/**
+ * @function
+ *
+ * Stores the stream priority of the existing stream denoted by
+ * |stream_id| in the object pointed by |extpri|.  This function is
+ * meant to be used by server for :rfc:`9218` extensible
+ * prioritization scheme.
+ *
+ * If |session| is initialized as client, this function returns
+ * :enum:`nghttp2_error.NGHTTP2_ERR_INVALID_STATE`.
+ *
+ * If
+ * :enum:`nghttp2_settings_id.NGHTTP2_SETTINGS_NO_RFC7540_PRIORITIES`
+ * of value of 1 is not submitted via `nghttp2_submit_settings()`,
+ * this function does nothing and returns 0.
+ *
+ * This function returns 0 if it succeeds, or one of the following
+ * negative error codes:
+ *
+ * :enum:`nghttp2_error.NGHTTP2_ERR_INVALID_STATE`
+ *     The |session| is initialized as client.
+ * :enum:`nghttp2_error.NGHTTP2_ERR_INVALID_ARGUMENT`
+ *     |stream_id| is zero; or a stream denoted by |stream_id| is not
+ *     found.
+ */
+NGHTTP2_EXTERN int nghttp2_session_get_extpri_stream_priority(
+    nghttp2_session *session, nghttp2_extpri *extpri, int32_t stream_id);
+
+/**
+ * @function
+ *
+ * Parses Priority header field value pointed by |value| of length
+ * |len|, and stores the result in the object pointed by |extpri|.
+ * Priority header field is defined in :rfc:`9218`.
+ *
+ * This function does not initialize the object pointed by |extpri|
+ * before storing the result.  It only assigns the values that the
+ * parser correctly extracted to fields.
+ *
+ * This function returns 0 if it succeeds, or one of the following
+ * negative error codes:
+ *
+ * :enum:`nghttp2_error.NGHTTP2_ERR_INVALID_ARGUMENT`
+ *     Failed to parse the header field value.
+ */
+NGHTTP2_EXTERN int nghttp2_extpri_parse_priority(nghttp2_extpri *extpri,
+                                                 const uint8_t *value,
+                                                 size_t len);
+
+/**
  * @function
  *
  * Compares ``lhs->name`` of length ``lhs->namelen`` bytes and
@@ -4737,11 +5022,14 @@ NGHTTP2_EXTERN int nghttp2_nv_compare_name(const nghttp2_nv *lhs,
 /**
  * @function
  *
- * A helper function for dealing with NPN in client side or ALPN in
- * server side.  The |in| contains peer's protocol list in preferable
- * order.  The format of |in| is length-prefixed and not
- * null-terminated.  For example, ``h2`` and
- * ``http/1.1`` stored in |in| like this::
+ * .. warning::
+ *
+ *   Deprecated.  Use `nghttp2_select_alpn` instead.
+ *
+ * A helper function for dealing with ALPN in server side.  The |in|
+ * contains peer's protocol list in preferable order.  The format of
+ * |in| is length-prefixed and not null-terminated.  For example,
+ * ``h2`` and ``http/1.1`` stored in |in| like this::
  *
  *     in[0] = 2
  *     in[1..2] = "h2"
@@ -4766,20 +5054,18 @@ NGHTTP2_EXTERN int nghttp2_nv_compare_name(const nghttp2_nv *lhs,
  *
  * For ALPN, refer to https://tools.ietf.org/html/rfc7301
  *
- * See http://technotes.googlecode.com/git/nextprotoneg.html for more
- * details about NPN.
+ * To use this method you should do something like::
  *
- * For NPN, to use this method you should do something like::
- *
- *     static int select_next_proto_cb(SSL* ssl,
- *                                     unsigned char **out,
+ *     static int alpn_select_proto_cb(SSL* ssl,
+ *                                     const unsigned char **out,
  *                                     unsigned char *outlen,
  *                                     const unsigned char *in,
  *                                     unsigned int inlen,
  *                                     void *arg)
  *     {
  *         int rv;
- *         rv = nghttp2_select_next_protocol(out, outlen, in, inlen);
+ *         rv = nghttp2_select_next_protocol((unsigned char**)out, outlen,
+ *                                           in, inlen);
  *         if (rv == -1) {
  *             return SSL_TLSEXT_ERR_NOACK;
  *         }
@@ -4789,13 +5075,72 @@ NGHTTP2_EXTERN int nghttp2_nv_compare_name(const nghttp2_nv *lhs,
  *         return SSL_TLSEXT_ERR_OK;
  *     }
  *     ...
- *     SSL_CTX_set_next_proto_select_cb(ssl_ctx, select_next_proto_cb, my_obj);
+ *     SSL_CTX_set_alpn_select_cb(ssl_ctx, alpn_select_proto_cb, my_obj);
  *
  */
 NGHTTP2_EXTERN int nghttp2_select_next_protocol(unsigned char **out,
                                                 unsigned char *outlen,
                                                 const unsigned char *in,
                                                 unsigned int inlen);
+
+/**
+ * @function
+ *
+ * A helper function for dealing with ALPN in server side.  The |in|
+ * contains peer's protocol list in preferable order.  The format of
+ * |in| is length-prefixed and not null-terminated.  For example,
+ * ``h2`` and ``http/1.1`` stored in |in| like this::
+ *
+ *     in[0] = 2
+ *     in[1..2] = "h2"
+ *     in[3] = 8
+ *     in[4..11] = "http/1.1"
+ *     inlen = 12
+ *
+ * The selection algorithm is as follows:
+ *
+ * 1. If peer's list contains HTTP/2 protocol the library supports,
+ *    it is selected and returns 1. The following step is not taken.
+ *
+ * 2. If peer's list contains ``http/1.1``, this function selects
+ *    ``http/1.1`` and returns 0.  The following step is not taken.
+ *
+ * 3. This function selects nothing and returns -1 (So called
+ *    non-overlap case).  In this case, |out| and |outlen| are left
+ *    untouched.
+ *
+ * Selecting ``h2`` means that ``h2`` is written into |*out| and its
+ * length (which is 2) is assigned to |*outlen|.
+ *
+ * For ALPN, refer to https://tools.ietf.org/html/rfc7301
+ *
+ * To use this method you should do something like::
+ *
+ *     static int alpn_select_proto_cb(SSL* ssl,
+ *                                     const unsigned char **out,
+ *                                     unsigned char *outlen,
+ *                                     const unsigned char *in,
+ *                                     unsigned int inlen,
+ *                                     void *arg)
+ *     {
+ *         int rv;
+ *         rv = nghttp2_select_alpn(out, outlen, in, inlen);
+ *         if (rv == -1) {
+ *             return SSL_TLSEXT_ERR_NOACK;
+ *         }
+ *         if (rv == 1) {
+ *             ((MyType*)arg)->http2_selected = 1;
+ *         }
+ *         return SSL_TLSEXT_ERR_OK;
+ *     }
+ *     ...
+ *     SSL_CTX_set_alpn_select_cb(ssl_ctx, alpn_select_proto_cb, my_obj);
+ *
+ */
+NGHTTP2_EXTERN int nghttp2_select_alpn(const unsigned char **out,
+                                       unsigned char *outlen,
+                                       const unsigned char *in,
+                                       unsigned int inlen);
 
 /**
  * @function
@@ -4833,13 +5178,51 @@ NGHTTP2_EXTERN int nghttp2_check_header_name(const uint8_t *name, size_t len);
  * Returns nonzero if HTTP header field value |value| of length |len|
  * is valid according to
  * http://tools.ietf.org/html/rfc7230#section-3.2
+ *
+ * This function is considered obsolete, and application should
+ * consider to use `nghttp2_check_header_value_rfc9113()` instead.
  */
 NGHTTP2_EXTERN int nghttp2_check_header_value(const uint8_t *value, size_t len);
 
 /**
  * @function
  *
- * Returns nonzero if the |value| which is supposed to the value of
+ * Returns nonzero if HTTP header field value |value| of length |len|
+ * is valid according to
+ * http://tools.ietf.org/html/rfc7230#section-3.2, plus
+ * https://datatracker.ietf.org/doc/html/rfc9113#section-8.2.1
+ */
+NGHTTP2_EXTERN int nghttp2_check_header_value_rfc9113(const uint8_t *value,
+                                                      size_t len);
+
+/**
+ * @function
+ *
+ * Returns nonzero if the |value| which is supposed to be the value of
+ * the :method header field is valid according to
+ * https://datatracker.ietf.org/doc/html/rfc7231#section-4 and
+ * https://datatracker.ietf.org/doc/html/rfc7230#section-3.2.6
+ */
+NGHTTP2_EXTERN int nghttp2_check_method(const uint8_t *value, size_t len);
+
+/**
+ * @function
+ *
+ * Returns nonzero if the |value| which is supposed to be the value of
+ * the :path header field is valid according to
+ * https://datatracker.ietf.org/doc/html/rfc7540#section-8.1.2.3
+ *
+ * |value| is valid if it merely consists of the allowed characters.
+ * In particular, it does not check whether |value| follows the syntax
+ * of path.  The allowed characters are all characters valid by
+ * `nghttp2_check_header_value` minus SPC and HT.
+ */
+NGHTTP2_EXTERN int nghttp2_check_path(const uint8_t *value, size_t len);
+
+/**
+ * @function
+ *
+ * Returns nonzero if the |value| which is supposed to be the value of the
  * :authority or host header field is valid according to
  * https://tools.ietf.org/html/rfc3986#section-3.2
  *
