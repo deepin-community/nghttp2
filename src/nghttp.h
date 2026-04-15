@@ -30,21 +30,29 @@
 #include <sys/types.h>
 #ifdef HAVE_SYS_SOCKET_H
 #  include <sys/socket.h>
-#endif // HAVE_SYS_SOCKET_H
+#endif // defined(HAVE_SYS_SOCKET_H)
 #ifdef HAVE_NETDB_H
 #  include <netdb.h>
-#endif // HAVE_NETDB_H
+#endif // defined(HAVE_NETDB_H)
 
 #include <string>
 #include <vector>
-#include <set>
+#include <unordered_set>
 #include <chrono>
 #include <memory>
 
-#include <openssl/ssl.h>
+#include "ssl_compat.h"
+
+#ifdef NGHTTP2_OPENSSL_IS_WOLFSSL
+#  include <wolfssl/options.h>
+#  include <wolfssl/openssl/ssl.h>
+#else // !defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
+#  include <openssl/ssl.h>
+#endif // !defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
 
 #include <ev.h>
 
+#define NGHTTP2_NO_SSIZE_T
 #include <nghttp2/nghttp2.h>
 
 #include "llhttp.h"
@@ -64,7 +72,7 @@ struct Config {
 
   Headers headers;
   Headers trailer;
-  std::vector<int32_t> weight;
+  std::vector<nghttp2_extpri> extpris;
   std::string certfile;
   std::string keyfile;
   std::string datafile;
@@ -77,7 +85,7 @@ struct Config {
   int64_t encoder_header_table_size;
   size_t padding;
   size_t max_concurrent_streams;
-  ssize_t peer_max_concurrent_streams;
+  size_t peer_max_concurrent_streams;
   int multiply;
   // milliseconds
   ev_tstamp timeout;
@@ -92,13 +100,11 @@ struct Config {
   bool upgrade;
   bool continuation;
   bool no_content_length;
-  bool no_dep;
   bool hexdump;
   bool no_push;
   bool expect_continue;
   bool verify_peer;
   bool ktls;
-  bool no_rfc7540_pri;
 };
 
 enum class RequestState { INITIAL, ON_REQUEST, ON_RESPONSE, ON_COMPLETE };
@@ -136,9 +142,9 @@ struct ContinueTimer {
 
 struct Request {
   // For pushed request, |uri| is empty and |u| is zero-cleared.
-  Request(const std::string &uri, const http_parser_url &u,
-          const nghttp2_data_provider *data_prd, int64_t data_length,
-          const nghttp2_priority_spec &pri_spec, int level = 0);
+  Request(const std::string &uri, const urlparse_url &u,
+          const nghttp2_data_provider2 *data_prd, int64_t data_length,
+          const nghttp2_extpri &extpri, int level = 0);
   ~Request();
 
   void init_inflater();
@@ -158,10 +164,10 @@ struct Request {
   void record_response_end_time();
 
   // Returns scheme taking into account overridden scheme.
-  StringRef get_real_scheme() const;
+  std::string_view get_real_scheme() const;
   // Returns request host, without port, taking into account
   // overridden host.
-  StringRef get_real_host() const;
+  std::string_view get_real_host() const;
   // Returns request port, taking into account overridden host, port,
   // and scheme.
   uint16_t get_real_port() const;
@@ -171,8 +177,8 @@ struct Request {
   std::string method;
   // URI without fragment
   std::string uri;
-  http_parser_url u;
-  nghttp2_priority_spec pri_spec;
+  urlparse_url u;
+  nghttp2_extpri extpri;
   RequestTiming timing;
   int64_t data_length;
   int64_t data_offset;
@@ -180,7 +186,7 @@ struct Request {
   int64_t response_len;
   nghttp2_gzip *inflater;
   std::unique_ptr<HtmlParser> html_parser;
-  const nghttp2_data_provider *data_prd;
+  const nghttp2_data_provider2 *data_prd;
   size_t header_buffer_size;
   int32_t stream_id;
   int status;
@@ -246,8 +252,8 @@ struct HttpClient {
   bool all_requests_processed() const;
   void update_hostport();
   bool add_request(const std::string &uri,
-                   const nghttp2_data_provider *data_prd, int64_t data_length,
-                   const nghttp2_priority_spec &pri_spec, int level = 0);
+                   const nghttp2_data_provider2 *data_prd, int64_t data_length,
+                   const nghttp2_extpri &extpri, int level = 0);
 
   void record_start_time();
   void record_domain_lookup_end_time();
@@ -255,14 +261,14 @@ struct HttpClient {
 
 #ifdef HAVE_JANSSON
   void output_har(FILE *outfile);
-#endif // HAVE_JANSSON
+#endif // defined(HAVE_JANSSON)
 
   MemchunkPool mcpool;
   DefaultMemchunks wb;
   std::vector<std::unique_ptr<Request>> reqvec;
   // Insert path already added in reqvec to prevent multiple request
   // for 1 resource.
-  std::set<std::string> path_cache;
+  std::unordered_set<std::string> path_cache;
   std::string scheme;
   std::string host;
   std::string hostport;
@@ -307,4 +313,4 @@ struct HttpClient {
 
 } // namespace nghttp2
 
-#endif // NGHTTP_H
+#endif // !defined(NGHTTP_H)

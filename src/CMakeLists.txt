@@ -7,7 +7,7 @@ set_source_files_properties(${cxx_sources} PROPERTIES
 
 include_directories(
   "${CMAKE_CURRENT_SOURCE_DIR}/includes"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../third-party"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../third-party/urlparse"
   "${CMAKE_CURRENT_SOURCE_DIR}/../third-party/llhttp/include"
 
   ${JEMALLOC_INCLUDE_DIRS}
@@ -16,11 +16,17 @@ include_directories(
   ${LIBNGHTTP3_INCLUDE_DIRS}
   ${LIBNGTCP2_INCLUDE_DIRS}
   ${LIBNGTCP2_CRYPTO_QUICTLS_INCLUDE_DIRS}
+  ${LIBNGTCP2_CRYPTO_LIBRESSL_INCLUDE_DIRS}
+  ${LIBNGTCP2_CRYPTO_WOLFSSL_INCLUDE_DIRS}
+  ${LIBNGTCP2_CRYPTO_OSSL_INCLUDE_DIRS}
   ${OPENSSL_INCLUDE_DIRS}
+  ${WOLFSSL_INCLUDE_DIRS}
   ${LIBCARES_INCLUDE_DIRS}
   ${JANSSON_INCLUDE_DIRS}
   ${ZLIB_INCLUDE_DIRS}
   ${LIBBPF_INCLUDE_DIRS}
+  ${LIBBROTLIENC_INCLUDE_DIRS}
+  ${LIBBROTLIDEC_INCLUDE_DIRS}
 )
 
 # XXX per-target?
@@ -32,12 +38,18 @@ link_libraries(
   ${LIBNGHTTP3_LIBRARIES}
   ${LIBNGTCP2_LIBRARIES}
   ${LIBNGTCP2_CRYPTO_QUICTLS_LIBRARIES}
+  ${LIBNGTCP2_CRYPTO_LIBRESSL_LIBRARIES}
+  ${LIBNGTCP2_CRYPTO_WOLFSSL_LIBRARIES}
+  ${LIBNGTCP2_CRYPTO_OSSL_LIBRARIES}
   ${OPENSSL_LIBRARIES}
+  ${WOLFSSL_LIBRARIES}
   ${LIBCARES_LIBRARIES}
   ${JANSSON_LIBRARIES}
   ${ZLIB_LIBRARIES}
   ${APP_LIBRARIES}
   ${LIBBPF_LIBRARIES}
+  ${LIBBROTLIENC_LIBRARIES}
+  ${LIBBROTLIDEC_LIBRARIES}
 )
 
 if(ENABLE_APP)
@@ -77,7 +89,6 @@ if(ENABLE_APP)
     list(APPEND H2LOAD_SOURCES
       h2load_http3_session.cc
       h2load_quic.cc
-      quic.cc
     )
   endif()
 
@@ -117,7 +128,6 @@ if(ENABLE_APP)
     shrpx_api_downstream_connection.cc
     shrpx_health_monitor_downstream_connection.cc
     shrpx_null_downstream_connection.cc
-    shrpx_exec.cc
     shrpx_dns_resolver.cc
     shrpx_dual_dns_resolver.cc
     shrpx_dns_tracker.cc
@@ -139,7 +149,7 @@ if(ENABLE_APP)
      shrpx_quic_connection_handler.cc
      shrpx_http3_upstream.cc
      http3.cc
-     quic.cc
+     siphash.cc
     )
   endif()
   add_library(nghttpx_static STATIC ${NGHTTPX_SRCS})
@@ -163,8 +173,7 @@ if(ENABLE_APP)
     target_link_libraries(nghttpx_static neverbleed)
   endif()
 
-
-  if(HAVE_CUNIT)
+  if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME AND BUILD_TESTING)
     set(NGHTTPX_UNITTEST_SOURCES
       shrpx-unittest.cc
       shrpx_tls_test.cc
@@ -181,17 +190,23 @@ if(ENABLE_APP)
       memchunk_test.cc
       template_test.cc
       base64_test.cc
+      ${CMAKE_SOURCE_DIR}/tests/munit/munit.c
     )
+    if(ENABLE_HTTP3)
+      list(APPEND NGHTTPX_UNITTEST_SOURCES siphash_test.cc)
+    endif()
     add_executable(nghttpx-unittest EXCLUDE_FROM_ALL
       ${NGHTTPX_UNITTEST_SOURCES}
       $<TARGET_OBJECTS:llhttp>
-      $<TARGET_OBJECTS:url-parser>
+      $<TARGET_OBJECTS:urlparse>
     )
-    target_include_directories(nghttpx-unittest PRIVATE ${CUNIT_INCLUDE_DIRS})
+    target_include_directories(nghttpx-unittest PRIVATE
+      ${CMAKE_SOURCE_DIR}/tests/munit
+    )
     target_compile_definitions(nghttpx-unittest
       PRIVATE "-DNGHTTP2_SRC_DIR=\"${CMAKE_SOURCE_DIR}/src\""
     )
-    target_link_libraries(nghttpx-unittest nghttpx_static ${CUNIT_LIBRARIES})
+    target_link_libraries(nghttpx-unittest nghttpx_static)
     if(HAVE_MRUBY)
       target_link_libraries(nghttpx-unittest mruby-lib)
     endif()
@@ -204,13 +219,13 @@ if(ENABLE_APP)
   endif()
 
   add_executable(nghttp   ${NGHTTP_SOURCES}   $<TARGET_OBJECTS:llhttp>
-    $<TARGET_OBJECTS:url-parser>
+    $<TARGET_OBJECTS:urlparse>
   )
   add_executable(nghttpd  ${NGHTTPD_SOURCES}  $<TARGET_OBJECTS:llhttp>
-    $<TARGET_OBJECTS:url-parser>
+    $<TARGET_OBJECTS:urlparse>
   )
   add_executable(nghttpx  ${NGHTTPX-bin_SOURCES} $<TARGET_OBJECTS:llhttp>
-    $<TARGET_OBJECTS:url-parser>
+    $<TARGET_OBJECTS:urlparse>
   )
   target_compile_definitions(nghttpx PRIVATE
     "-DPKGDATADIR=\"${PKGDATADIR}\""
@@ -218,11 +233,10 @@ if(ENABLE_APP)
   )
   target_link_libraries(nghttpx nghttpx_static)
   add_executable(h2load   ${H2LOAD_SOURCES}   $<TARGET_OBJECTS:llhttp>
-    $<TARGET_OBJECTS:url-parser>
+    $<TARGET_OBJECTS:urlparse>
   )
 
-  install(TARGETS nghttp nghttpd nghttpx h2load
-    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  install(TARGETS nghttp nghttpd nghttpx h2load)
 endif()
 
 if(ENABLE_HPACK_TOOLS)
@@ -238,6 +252,5 @@ if(ENABLE_HPACK_TOOLS)
   )
   add_executable(inflatehd ${inflatehd_SOURCES})
   add_executable(deflatehd ${deflatehd_SOURCES})
-  install(TARGETS inflatehd deflatehd
-    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  install(TARGETS inflatehd deflatehd)
 endif()

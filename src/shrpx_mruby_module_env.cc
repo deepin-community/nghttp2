@@ -90,7 +90,7 @@ mrb_value env_get_remote_addr(mrb_state *mrb, mrb_value self) {
 
   auto &ipaddr = handler->get_ipaddr();
 
-  return mrb_str_new(mrb, ipaddr.c_str(), ipaddr.size());
+  return mrb_str_new(mrb, ipaddr.data(), static_cast<mrb_int>(ipaddr.size()));
 }
 } // namespace
 
@@ -114,7 +114,8 @@ mrb_value env_get_server_addr(mrb_state *mrb, mrb_value self) {
   auto handler = upstream->get_client_handler();
   auto faddr = handler->get_upstream_addr();
 
-  return mrb_str_new(mrb, faddr->host.c_str(), faddr->host.size());
+  return mrb_str_new(mrb, faddr->host.data(),
+                     static_cast<mrb_int>(faddr->host.size()));
 }
 } // namespace
 
@@ -137,7 +138,7 @@ mrb_value env_get_tls_sni(mrb_state *mrb, mrb_value self) {
   auto handler = upstream->get_client_handler();
   auto sni = handler->get_tls_sni();
 
-  return mrb_str_new(mrb, sni.c_str(), sni.size());
+  return mrb_str_new(mrb, sni.data(), static_cast<mrb_int>(sni.size()));
 }
 } // namespace
 
@@ -172,11 +173,10 @@ mrb_value env_get_tls_client_fingerprint_md(mrb_state *mrb, const EVP_MD *md) {
     mrb_raise(mrb, E_RUNTIME_ERROR, "could not compute client fingerprint");
   }
 
-  // TODO Use template version of format_hex
   auto &balloc = downstream->get_block_allocator();
-  auto f = util::format_hex(balloc,
-                            StringRef{std::begin(buf), std::begin(buf) + slen});
-  return mrb_str_new(mrb, f.c_str(), f.size());
+  auto f =
+    util::format_hex(balloc, std::span{buf.data(), static_cast<size_t>(slen)});
+  return mrb_str_new(mrb, f.data(), static_cast<mrb_int>(f.size()));
 }
 } // namespace
 
@@ -219,7 +219,7 @@ mrb_value env_get_tls_client_subject_name(mrb_state *mrb, mrb_value self) {
 #if !OPENSSL_3_0_0_API
   X509_free(x);
 #endif // !OPENSSL_3_0_0_API
-  return mrb_str_new(mrb, name.c_str(), name.size());
+  return mrb_str_new(mrb, name.data(), static_cast<mrb_int>(name.size()));
 }
 } // namespace
 
@@ -249,7 +249,7 @@ mrb_value env_get_tls_client_issuer_name(mrb_state *mrb, mrb_value self) {
 #if !OPENSSL_3_0_0_API
   X509_free(x);
 #endif // !OPENSSL_3_0_0_API
-  return mrb_str_new(mrb, name.c_str(), name.size());
+  return mrb_str_new(mrb, name.data(), static_cast<mrb_int>(name.size()));
 }
 } // namespace
 
@@ -279,7 +279,7 @@ mrb_value env_get_tls_client_serial(mrb_state *mrb, mrb_value self) {
 #if !OPENSSL_3_0_0_API
   X509_free(x);
 #endif // !OPENSSL_3_0_0_API
-  return mrb_str_new(mrb, sn.c_str(), sn.size());
+  return mrb_str_new(mrb, sn.data(), static_cast<mrb_int>(sn.size()));
 }
 } // namespace
 
@@ -379,7 +379,9 @@ mrb_value env_get_tls_protocol(mrb_state *mrb, mrb_value self) {
     return mrb_str_new_static(mrb, "", 0);
   }
 
-  return mrb_str_new_cstr(mrb, nghttp2::tls::get_tls_protocol(ssl));
+  auto proto = nghttp2::tls::get_tls_protocol(ssl);
+
+  return mrb_str_new(mrb, proto.data(), static_cast<mrb_int>(proto.size()));
 }
 } // namespace
 
@@ -403,10 +405,9 @@ mrb_value env_get_tls_session_id(mrb_state *mrb, mrb_value self) {
   unsigned int session_id_length = 0;
   auto session_id = SSL_SESSION_get_id(session, &session_id_length);
 
-  // TODO Use template version of util::format_hex.
   auto &balloc = downstream->get_block_allocator();
-  auto id = util::format_hex(balloc, StringRef{session_id, session_id_length});
-  return mrb_str_new(mrb, id.c_str(), id.size());
+  auto id = util::format_hex(balloc, std::span{session_id, session_id_length});
+  return mrb_str_new(mrb, id.data(), static_cast<mrb_int>(id.size()));
 }
 } // namespace
 
@@ -433,7 +434,7 @@ mrb_value env_get_alpn(mrb_state *mrb, mrb_value self) {
   auto upstream = downstream->get_upstream();
   auto handler = upstream->get_client_handler();
   auto alpn = handler->get_alpn();
-  return mrb_str_new(mrb, alpn.c_str(), alpn.size());
+  return mrb_str_new(mrb, alpn.data(), static_cast<mrb_int>(alpn.size()));
 }
 } // namespace
 
@@ -451,7 +452,7 @@ mrb_value env_get_tls_handshake_finished(mrb_state *mrb, mrb_value self) {
 
 void init_env_class(mrb_state *mrb, RClass *module) {
   auto env_class =
-      mrb_define_class_under(mrb, module, "Env", mrb->object_class);
+    mrb_define_class_under(mrb, module, "Env", mrb->object_class);
 
   mrb_define_method(mrb, env_class, "initialize", env_init, MRB_ARGS_NONE());
   mrb_define_method(mrb, env_class, "req", env_get_req, MRB_ARGS_NONE());
