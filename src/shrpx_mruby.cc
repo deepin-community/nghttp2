@@ -38,7 +38,7 @@ namespace shrpx {
 namespace mruby {
 
 MRubyContext::MRubyContext(mrb_state *mrb, mrb_value app, mrb_value env)
-    : mrb_(mrb), app_(std::move(app)), env_(std::move(env)) {}
+  : mrb_(mrb), app_(std::move(app)), env_(std::move(env)) {}
 
 MRubyContext::~MRubyContext() {
   if (mrb_) {
@@ -139,24 +139,24 @@ mrb_value instantiate_app(mrb_state *mrb, RProc *proc) {
 // very hard to write these kind of code because mruby has almost no
 // documentation about compiling or generating code, at least at the
 // time of this writing.
-RProc *compile(mrb_state *mrb, const StringRef &filename) {
+RProc *compile(mrb_state *mrb, const std::string_view &filename) {
   if (filename.empty()) {
     return nullptr;
   }
 
-  auto infile = fopen(filename.c_str(), "rb");
+  auto infile = fopen(filename.data(), "rb");
   if (infile == nullptr) {
     LOG(ERROR) << "Could not open mruby file " << filename;
     return nullptr;
   }
   auto infile_d = defer(fclose, infile);
 
-  auto mrbc = mrbc_context_new(mrb);
+  auto mrbc = mrb_ccontext_new(mrb);
   if (mrbc == nullptr) {
     LOG(ERROR) << "mrb_context_new failed";
     return nullptr;
   }
-  auto mrbc_d = defer(mrbc_context_free, mrb, mrbc);
+  auto mrbc_d = defer(mrb_ccontext_free, mrb, mrbc);
 
   auto parser = mrb_parse_file(mrb, infile, nullptr);
   if (parser == nullptr) {
@@ -179,7 +179,8 @@ RProc *compile(mrb_state *mrb, const StringRef &filename) {
   return proc;
 }
 
-std::unique_ptr<MRubyContext> create_mruby_context(const StringRef &filename) {
+std::unique_ptr<MRubyContext>
+create_mruby_context(const std::string_view &filename) {
   if (filename.empty()) {
     return std::make_unique<MRubyContext>(nullptr, mrb_nil_value(),
                                           mrb_nil_value());

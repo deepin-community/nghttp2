@@ -35,28 +35,10 @@
 
 #define MAKE_NV(NAME, VALUE)                                                   \
   {                                                                            \
-    (uint8_t *)(NAME), (uint8_t *)(VALUE), sizeof((NAME)) - 1,                 \
-        sizeof((VALUE)) - 1, NGHTTP2_NV_FLAG_NONE                              \
+    (uint8_t *)(NAME),   (uint8_t *)(VALUE),   sizeof((NAME)) - 1,             \
+    sizeof((VALUE)) - 1, NGHTTP2_NV_FLAG_NONE,                                 \
   }
 #define ARRLEN(ARR) (sizeof(ARR) / sizeof(ARR[0]))
-
-#define assert_nv_equal(A, B, len, mem)                                        \
-  do {                                                                         \
-    size_t alloclen = sizeof(nghttp2_nv) * len;                                \
-    const nghttp2_nv *sa = A, *sb = B;                                         \
-    nghttp2_nv *a = mem->malloc(alloclen, NULL);                               \
-    nghttp2_nv *b = mem->malloc(alloclen, NULL);                               \
-    ssize_t i_;                                                                \
-    memcpy(a, sa, alloclen);                                                   \
-    memcpy(b, sb, alloclen);                                                   \
-    nghttp2_nv_array_sort(a, len);                                             \
-    nghttp2_nv_array_sort(b, len);                                             \
-    for (i_ = 0; i_ < (ssize_t)len; ++i_) {                                    \
-      CU_ASSERT(nghttp2_nv_equal(&a[i_], &b[i_]));                             \
-    }                                                                          \
-    mem->free(b, NULL);                                                        \
-    mem->free(a, NULL);                                                        \
-  } while (0);
 
 int unpack_framebuf(nghttp2_frame *frame, nghttp2_bufs *bufs);
 
@@ -78,8 +60,8 @@ void nva_out_reset(nva_out *out, nghttp2_mem *mem);
 
 void add_out(nva_out *out, nghttp2_nv *nv, nghttp2_mem *mem);
 
-ssize_t inflate_hd(nghttp2_hd_inflater *inflater, nva_out *out,
-                   nghttp2_bufs *bufs, size_t offset, nghttp2_mem *mem);
+nghttp2_ssize inflate_hd(nghttp2_hd_inflater *inflater, nva_out *out,
+                         nghttp2_bufs *bufs, size_t offset, nghttp2_mem *mem);
 
 int pack_headers(nghttp2_bufs *bufs, nghttp2_hd_deflater *deflater,
                  int32_t stream_id, uint8_t flags, const nghttp2_nv *nva,
@@ -96,18 +78,6 @@ void bufs_large_init(nghttp2_bufs *bufs, size_t chunk_size);
 
 nghttp2_stream *open_stream(nghttp2_session *session, int32_t stream_id);
 
-nghttp2_stream *open_stream_with_dep(nghttp2_session *session,
-                                     int32_t stream_id,
-                                     nghttp2_stream *dep_stream);
-
-nghttp2_stream *open_stream_with_dep_weight(nghttp2_session *session,
-                                            int32_t stream_id, int32_t weight,
-                                            nghttp2_stream *dep_stream);
-
-nghttp2_stream *open_stream_with_dep_excl(nghttp2_session *session,
-                                          int32_t stream_id,
-                                          nghttp2_stream *dep_stream);
-
 nghttp2_outbound_item *create_data_ob_item(nghttp2_mem *mem);
 
 /* Opens stream.  This stream is assumed to be sent from |session|,
@@ -120,18 +90,8 @@ nghttp2_stream *open_sent_stream2(nghttp2_session *session, int32_t stream_id,
 
 nghttp2_stream *open_sent_stream3(nghttp2_session *session, int32_t stream_id,
                                   uint8_t flags,
-                                  nghttp2_priority_spec *pri_spec_in,
                                   nghttp2_stream_state initial_state,
                                   void *stream_user_data);
-
-nghttp2_stream *open_sent_stream_with_dep(nghttp2_session *session,
-                                          int32_t stream_id,
-                                          nghttp2_stream *dep_stream);
-
-nghttp2_stream *open_sent_stream_with_dep_weight(nghttp2_session *session,
-                                                 int32_t stream_id,
-                                                 int32_t weight,
-                                                 nghttp2_stream *dep_stream);
 
 /* Opens stream.  This stream is assumed to be received by |session|,
    and session->last_recv_stream_id will be adjusted accordingly. */
@@ -142,17 +102,7 @@ nghttp2_stream *open_recv_stream2(nghttp2_session *session, int32_t stream_id,
 
 nghttp2_stream *open_recv_stream3(nghttp2_session *session, int32_t stream_id,
                                   uint8_t flags,
-                                  nghttp2_priority_spec *pri_spec_in,
                                   nghttp2_stream_state initial_state,
                                   void *stream_user_data);
-
-nghttp2_stream *open_recv_stream_with_dep(nghttp2_session *session,
-                                          int32_t stream_id,
-                                          nghttp2_stream *dep_stream);
-
-nghttp2_stream *open_recv_stream_with_dep_weight(nghttp2_session *session,
-                                                 int32_t stream_id,
-                                                 int32_t weight,
-                                                 nghttp2_stream *dep_stream);
 
 #endif /* NGHTTP2_TEST_HELPER_H */

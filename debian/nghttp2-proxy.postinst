@@ -4,7 +4,7 @@ set -e
 #DEBHELPER#
 
 if [ -x /etc/init.d/nghttpx ]; then
-  if [ -f /run/nghttpx.pid ] && pidof /usr/sbin/nghttpx >/dev/null; then
+  if invoke-rc.d --quiet nghttpx status > /dev/null 2>&1 ; then
     invoke-rc.d nghttpx upgrade || invoke-rc.d nghttpx restart
     exit $?
   else
