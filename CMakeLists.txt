@@ -22,15 +22,15 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.14)
 # XXX using 1.8.90 instead of 1.9.0-DEV
-project(nghttp2 VERSION 1.59.0)
+project(nghttp2 VERSION 1.68.1 LANGUAGES C)
 
 # See versioning rule:
 #  https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
-set(LT_CURRENT  40)
-set(LT_REVISION 0)
-set(LT_AGE      26)
+set(LT_CURRENT  43)
+set(LT_REVISION 3)
+set(LT_AGE      29)
 
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 include(Version)
@@ -51,31 +51,35 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 include(GNUInstallDirs)
+include(CMakeDependentOption)
 
 # For documentation
 find_package(Python3 COMPONENTS Interpreter)
 
 # Auto-detection of features that can be toggled
 if(NOT ENABLE_LIB_ONLY)
+  enable_language(CXX)
   find_package(Libev 4.11)
   find_package(Libcares 1.7.5)
   find_package(ZLIB 1.2.3)
+  find_package(Libbrotlienc 1.0.9)
+  find_package(Libbrotlidec 1.0.9)
 endif()
 
-find_package(OpenSSL 1.1.1)
-find_package(Libngtcp2 1.0.0)
-find_package(Libngtcp2_crypto_quictls 1.0.0)
-if(LIBNGTCP2_CRYPTO_QUICTLS_FOUND)
-  set(HAVE_LIBNGTCP2_CRYPTO_QUICTLS 1)
+if(WITH_WOLFSSL)
+  find_package(WolfSSL 5.7.0)
+else()
+  find_package(OpenSSL 1.1.1)
 endif()
-find_package(Libnghttp3 1.1.0)
+find_package(Libngtcp2 1.15.0)
+find_package(Libnghttp3 1.11.0)
 if(WITH_LIBBPF)
   find_package(Libbpf 0.7.0)
   if(NOT LIBBPF_FOUND)
     message(FATAL_ERROR "libbpf was requested (WITH_LIBBPF=1) but not found.")
   endif()
 endif()
-if(OPENSSL_FOUND AND LIBEV_FOUND AND ZLIB_FOUND)
+if((OPENSSL_FOUND OR WOLFSSL_FOUND) AND LIBEV_FOUND AND ZLIB_FOUND)
   set(ENABLE_APP_DEFAULT ON)
 else()
   set(ENABLE_APP_DEFAULT OFF)
@@ -120,30 +124,31 @@ else()
   set(HINT_NORETURN)
 endif()
 
-include(ExtractValidFlags)
-foreach(_cxx1x_flag -std=c++14)
-  extract_valid_cxx_flags(_cxx1x_flag_supported ${_cxx1x_flag})
-  if(_cxx1x_flag_supported)
-    set(CXX1XCXXFLAGS ${_cxx1x_flag})
-    break()
-  endif()
-endforeach()
+if(NOT ENABLE_LIB_ONLY)
+  include(ExtractValidFlags)
+  foreach(_cxx1x_flag -std=c++20)
+    extract_valid_cxx_flags(_cxx1x_flag_supported ${_cxx1x_flag})
+    if(_cxx1x_flag_supported)
+      set(CXX1XCXXFLAGS ${_cxx1x_flag})
+      break()
+    endif()
+  endforeach()
 
-include(CMakePushCheckState)
-include(CheckCXXSourceCompiles)
-cmake_push_check_state()
-set(CMAKE_REQUIRED_DEFINITIONS "${CXX1XCXXFLAGS}")
-# Check that std::future is available.
-check_cxx_source_compiles("
-#include <vector>
-#include <future>
-int main() { std::vector<std::future<int>> v; }" HAVE_STD_FUTURE)
-# Check that std::map::emplace is available for g++-4.7.
-check_cxx_source_compiles("
-#include <map>
-int main() { std::map<int, int>().emplace(1, 2); }" HAVE_STD_MAP_EMPLACE)
-cmake_pop_check_state()
-
+  include(CMakePushCheckState)
+  include(CheckCXXSourceCompiles)
+  cmake_push_check_state()
+  set(CMAKE_REQUIRED_DEFINITIONS "${CXX1XCXXFLAGS}")
+  # Check that std::future is available.
+  check_cxx_source_compiles("
+  #include <vector>
+  #include <future>
+  int main() { std::vector<std::future<int>> v; }" HAVE_STD_FUTURE)
+  # Check that std::chrono::time_zone is available.
+  check_cxx_source_compiles("
+  #include <chrono>
+  int main() { auto tz = std::chrono::current_zone(); (void)tz; }" HAVE_STD_CHRONO_TIME_ZONE)
+  cmake_pop_check_state()
+endif()
 
 # Checks for libraries.
 # Additional libraries required for programs under src directory.
@@ -165,17 +170,13 @@ endif()
 # XXX shouldn't ${CMAKE_DL_LIBS} be appended to OPENSSL_LIBRARIES instead of
 # APP_LIBRARIES if it is really specific to OpenSSL?
 
-find_package(CUnit 2.1)
 enable_testing()
-set(HAVE_CUNIT      ${CUNIT_FOUND})
-if(HAVE_CUNIT)
-  add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
-endif()
+add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
 
 # openssl (for src)
 include(CheckSymbolExists)
 set(HAVE_OPENSSL    ${OPENSSL_FOUND})
-if(OPENSSL_FOUND)
+if(NOT ENABLE_LIB_ONLY AND OPENSSL_FOUND)
   set(OPENSSL_INCLUDE_DIRS  ${OPENSSL_INCLUDE_DIR})
   cmake_push_check_state()
   set(CMAKE_REQUIRED_INCLUDES   "${OPENSSL_INCLUDE_DIR}")
@@ -183,14 +184,36 @@ if(OPENSSL_FOUND)
   if(WIN32)
     set(CMAKE_REQUIRED_LIBRARIES "${CMAKE_REQUIRED_LIBRARIES}" "ws2_32" "bcrypt")
   endif()
-  check_symbol_exists(SSL_provide_quic_data "openssl/ssl.h" HAVE_SSL_PROVIDE_QUIC_DATA)
-  if(NOT HAVE_SSL_PROVIDE_QUIC_DATA)
-    message(WARNING "OpenSSL in ${OPENSSL_LIBRARIES} does not have SSL_provide_quic_data.  HTTP/3 support cannot be enabled")
+  check_symbol_exists("LIBRESSL_VERSION_NUMBER" "openssl/opensslv.h" LIBRESSL_FOUND)
+  if(ENABLE_HTTP3)
+    check_symbol_exists(SSL_provide_quic_data "openssl/ssl.h" HAVE_SSL_PROVIDE_QUIC_DATA)
+    if(NOT HAVE_SSL_PROVIDE_QUIC_DATA)
+      check_symbol_exists(SSL_set_quic_tls_cbs "openssl/ssl.h" HAVE_SSL_SET_QUIC_TLS_CBS)
+      if(NOT HAVE_SSL_SET_QUIC_TLS_CBS)
+        message(WARNING "OpenSSL in ${OPENSSL_LIBRARIES} has neither SSL_provide_quic_data nor SSL_set_quic_tls_cbs.  HTTP/3 support cannot be enabled")
+      endif()
+    endif()
   endif()
   cmake_pop_check_state()
 else()
   set(OPENSSL_INCLUDE_DIRS  "")
   set(OPENSSL_LIBRARIES     "")
+endif()
+# wolfSSL (for src)
+set(HAVE_WOLFSSL ${WOLFSSL_FOUND})
+if(WOLFSSL_FOUND)
+  set(WOLFSSL_INCLUDE_DIRS ${WOLFSSL_INCLUDE_DIR})
+  cmake_push_check_state()
+  set(CMAKE_REQUIRED_INCLUDES   "${WOLFSSL_INCLUDE_DIR}")
+  set(CMAKE_REQUIRED_LIBRARIES  "${WOLFSSL_LIBRARIES}")
+  check_symbol_exists(SSL_provide_quic_data "wolfssl/options.h;wolfssl/ssl.h" HAVE_WOLFSSL_SSL_PROVIDE_QUIC_DATA)
+  if(NOT HAVE_WOLFSSL_SSL_PROVIDE_QUIC_DATA)
+    message(WARNING "wolfSSL in ${WOLFSSL_LIBRARIES} does not have SSL_provide_quic_data.  HTTP/3 support cannot be enabled")
+  endif()
+  cmake_pop_check_state()
+else()
+  set(WOLFSSL_INCLUDE_DIRS "")
+  set(WOLFSSL_LIBRARIES    "")
 endif()
 # libev (for src)
 set(HAVE_LIBEV      ${LIBEV_FOUND})
@@ -222,6 +245,13 @@ endif()
 # jemalloc
 set(HAVE_JEMALLOC   ${JEMALLOC_FOUND})
 
+# libbrotli (for src)
+set(HAVE_LIBBROTLIENC ${LIBBROTLIENC_FOUND})
+set(HAVE_LIBBROTLIDEC ${LIBBROTLIDEC_FOUND})
+if(LIBBROTLIENC_FOUND AND LIBBROTLIDEC_FOUND)
+  set(HAVE_LIBBROTLI 1)
+endif()
+
 # libbpf (for bpf)
 set(HAVE_LIBBPF ${LIBBPF_FOUND})
 if(LIBBPF_FOUND)
@@ -237,13 +267,45 @@ int main() { enum bpf_stats_type foo; (void)foo; }" HAVE_BPF_STATS_TYPE)
 endif()
 
 # The nghttp, nghttpd and nghttpx under src depend on zlib, OpenSSL and libev
-if(ENABLE_APP AND NOT (ZLIB_FOUND AND OPENSSL_FOUND AND LIBEV_FOUND))
+if(ENABLE_APP AND NOT (ZLIB_FOUND AND (OPENSSL_FOUND OR WOLFSSL_FOUND) AND LIBEV_FOUND))
   message(FATAL_ERROR "Applications were requested (ENABLE_APP=1) but dependencies are not met.")
 endif()
 
-# HTTP/3 requires quictls/openssl, libngtcp2, libngtcp2_crypto_quictls
-# and libnghttp3.
-if(ENABLE_HTTP3 AND NOT (HAVE_SSL_PROVIDE_QUIC_DATA AND LIBNGTCP2_FOUND AND LIBNGTCP2_CRYPTO_QUICTLS_FOUND AND LIBNGHTTP3_FOUND))
+if(ENABLE_HTTP3)
+  if(HAVE_SSL_PROVIDE_QUIC_DATA AND NOT LIBRESSL_FOUND)
+    find_package(Libngtcp2_crypto_quictls 1.15.0)
+    if(LIBNGTCP2_CRYPTO_QUICTLS_FOUND)
+      set(HAVE_LIBNGTCP2_CRYPTO_QUICTLS 1)
+    endif()
+  elseif(HAVE_SSL_PROVIDE_QUIC_DATA AND LIBRESSL_FOUND)
+    find_package(Libngtcp2_crypto_libressl 1.15.0)
+    if(LIBNGTCP2_CRYPTO_LIBRESSL_FOUND)
+      set(HAVE_LIBNGTCP2_CRYPTO_LIBRESSL 1)
+    endif()
+  elseif(HAVE_WOLFSSL_SSL_PROVIDE_QUIC_DATA)
+    find_package(Libngtcp2_crypto_wolfssl 1.15.0)
+    if(LIBNGTCP2_CRYPTO_WOLFSSL_FOUND)
+      set(HAVE_LIBNGTCP2_CRYPTO_WOLFSSL 1)
+    endif()
+  elseif(HAVE_SSL_SET_QUIC_TLS_CBS)
+    find_package(Libngtcp2_crypto_ossl 1.15.0)
+    if(LIBNGTCP2_CRYPTO_OSSL_FOUND)
+      set(HAVE_LIBNGTCP2_CRYPTO_OSSL 1)
+    endif()
+  endif()
+endif()
+
+# HTTP/3 requires libngtcp2 + nghttp3 + one of:
+#
+# - quictls/openssl + libngtcp2_crypto_quictls
+# - libressl + libngtcp2_crypto_libressl
+# - wolfSSL + libngtcp2_crypto_wolfssl
+# - openssl/openssl + libngtcp2_crypto_ossl
+if(ENABLE_HTTP3 AND NOT (LIBNGTCP2_FOUND AND LIBNGHTTP3_FOUND AND
+      ((HAVE_SSL_PROVIDE_QUIC_DATA AND NOT LIBRESSL_FOUND AND LIBNGTCP2_CRYPTO_QUICTLS_FOUND) OR
+	(HAVE_SSL_PROVIDE_QUIC_DATA AND LIBRESSL_FOUND AND LIBNGTCP2_CRYPTO_LIBRESSL_FOUND) OR
+	(HAVE_WOLFSSL_SSL_PROVIDE_QUIC_DATA AND LIBNGTCP2_CRYPTO_WOLFSSL_FOUND) OR
+	(HAVE_SSL_SET_QUIC_TLS_CBS AND LIBNGTCP2_CRYPTO_OSSL_FOUND))))
   message(FATAL_ERROR "HTTP/3 was requested (ENABLE_HTTP3=1) but dependencies are not met.")
 endif()
 
@@ -318,8 +380,9 @@ check_function_exists(_Exit     HAVE__EXIT)
 check_function_exists(accept4   HAVE_ACCEPT4)
 check_function_exists(clock_gettime HAVE_CLOCK_GETTIME)
 check_function_exists(mkostemp  HAVE_MKOSTEMP)
+check_function_exists(pipe2     HAVE_PIPE2)
 
-check_symbol_exists(GetTickCount64 sysinfoapi.h HAVE_GETTICKCOUNT64)
+check_symbol_exists(GetTickCount64 "windows.h;sysinfoapi.h" HAVE_GETTICKCOUNT64)
 
 include(CheckSymbolExists)
 # XXX does this correctly detect initgroups (un)availability on cygwin?
@@ -427,14 +490,15 @@ add_subdirectory(lib)
 add_subdirectory(third-party)
 add_subdirectory(src)
 add_subdirectory(examples)
-add_subdirectory(tests)
-#add_subdirectory(tests/testdata)
-add_subdirectory(integration-tests)
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME AND BUILD_TESTING)
+  add_subdirectory(tests)
+  #add_subdirectory(tests/testdata)
+  add_subdirectory(integration-tests)
+endif()
 if(ENABLE_DOC)
   add_subdirectory(doc)
 endif()
 add_subdirectory(contrib)
-add_subdirectory(script)
 add_subdirectory(bpf)
 
 
@@ -458,15 +522,18 @@ message(STATUS "summary of build options:
       Python:          ${Python3_EXECUTABLE}
       Python3_VERSION: ${Python3_VERSION}
     Test:
-      CUnit:          ${HAVE_CUNIT} (LIBS='${CUNIT_LIBRARIES}')
       Failmalloc:     ${ENABLE_FAILMALLOC}
+      Build Test:     ${BUILD_TESTING}
     Libs:
       OpenSSL:        ${HAVE_OPENSSL} (LIBS='${OPENSSL_LIBRARIES}')
+      wolfSSL:        ${HAVE_WOLFSSL} (LIBS='${WOLFSSL_LIBRARIES}')
       Libxml2:        ${HAVE_LIBXML2} (LIBS='${LIBXML2_LIBRARIES}')
       Libev:          ${HAVE_LIBEV} (LIBS='${LIBEV_LIBRARIES}')
       Libc-ares:      ${HAVE_LIBCARES} (LIBS='${LIBCARES_LIBRARIES}')
       Libngtcp2:      ${HAVE_LIBNGTCP2} (LIBS='${LIBNGTCP2_LIBRARIES}')
       Libngtcp2_crypto_quictls: ${HAVE_LIBNGTCP2_CRYPTO_QUICTLS} (LIBS='${LIBNGTCP2_CRYPTO_QUICTLS_LIBRARIES}')
+      Libngtcp2_crypto_libressl: ${HAVE_LIBNGTCP2_CRYPTO_LIBRESSL} (LIBS='${LIBNGTCP2_CRYPTO_LIBRESSL_LIBRARIES}')
+      Libngtcp2_crypto_wolfssl: ${HAVE_LIBNGTCP2_CRYPTO_WOLFSSL} (LIBS='${LIBNGTCP2_CRYPTO_WOLFSSL_LIBRARIES}')
       Libnghttp3:     ${HAVE_LIBNGHTTP3} (LIBS='${LIBNGHTTP3_LIBRARIES}')
       Libbpf:         ${HAVE_LIBBPF} (LIBS='${LIBBPF_LIBRARIES}')
       Libevent(SSL):  ${HAVE_LIBEVENT_OPENSSL} (LIBS='${LIBEVENT_OPENSSL_LIBRARIES}')
@@ -474,6 +541,8 @@ message(STATUS "summary of build options:
       Jemalloc:       ${HAVE_JEMALLOC} (LIBS='${JEMALLOC_LIBRARIES}')
       Zlib:           ${HAVE_ZLIB} (LIBS='${ZLIB_LIBRARIES}')
       Systemd:        ${HAVE_SYSTEMD} (LIBS='${SYSTEMD_LIBRARIES}')
+      Libbrotlienc:   ${HAVE_LIBBROTLIENC} (LIBS='${LIBBROTLIENC_LIBRARIES}')
+      Libbrotlidec:   ${HAVE_LIBBROTLIDEC} (LIBS='${LIBBROTLIDEC_LIBRARIES}')
     Third-party:
       http-parser:    ${ENABLE_THIRD_PARTY}
       MRuby:          ${HAVE_MRUBY}

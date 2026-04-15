@@ -27,7 +27,7 @@ level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
 .\" new: \\n[rst2man-indent\\n[rst2man-indent-level]]
 .in \\n[rst2man-indent\\n[rst2man-indent-level]]u
 ..
-.TH "NGHTTPX" "1" "Jan 21, 2024" "1.59.0" "nghttp2"
+.TH "NGHTTPX" "1" "Mar 18, 2026" "1.68.1" "nghttp2"
 .SH NAME
 nghttpx \- HTTP/2 proxy
 .SH SYNOPSIS
@@ -46,8 +46,7 @@ Set  path  to  server\(aqs private  key.   Required  unless
 .TP
 .B <CERT>
 Set  path  to  server\(aqs  certificate.   Required  unless
-\(dqno\-tls\(dq  parameter is  used in  \fI\%\-\-frontend\fP option.   To
-make OCSP stapling work, this must be an absolute path.
+\(dqno\-tls\(dq  parameter is  used in  \fI\%\-\-frontend\fP option.
 .UNINDENT
 .SH OPTIONS
 .sp
@@ -371,7 +370,7 @@ Default: \fBauto\fP
 .TP
 .B \-\-backend\-http\-proxy\-uri=<URI>
 Specify      proxy       URI      in       the      form
-\fI\%http:/\fP/[<USER>:<PASS>@]<PROXY>:<PORT>.    If   a   proxy
+\X'tty: link http:/'\fI\%http:/\fP\X'tty: link'/[<USER>:<PASS>@]<PROXY>:<PORT>.    If   a   proxy
 requires  authentication,  specify  <USER>  and  <PASS>.
 Note that  they must be properly  percent\-encoded.  This
 proxy  is used  when the  backend connection  is HTTP/2.
@@ -555,24 +554,21 @@ this option will be simply ignored.
 .SS Timeout
 .INDENT 0.0
 .TP
-.B \-\-frontend\-http2\-read\-timeout=<DURATION>
-Specify read timeout for HTTP/2 frontend connection.
+.B \-\-frontend\-http2\-idle\-timeout=<DURATION>
+Specify idle timeout for HTTP/2 frontend connection.  If
+no active streams exist for this duration, connection is
+closed.
 .sp
 Default: \fB3m\fP
 .UNINDENT
 .INDENT 0.0
 .TP
-.B \-\-frontend\-http3\-read\-timeout=<DURATION>
-Specify read timeout for HTTP/3 frontend connection.
+.B \-\-frontend\-http3\-idle\-timeout=<DURATION>
+Specify idle timeout for HTTP/3 frontend connection.  If
+no active streams exist for this duration, connection is
+closed.
 .sp
 Default: \fB3m\fP
-.UNINDENT
-.INDENT 0.0
-.TP
-.B \-\-frontend\-read\-timeout=<DURATION>
-Specify read timeout for HTTP/1.1 frontend connection.
-.sp
-Default: \fB1m\fP
 .UNINDENT
 .INDENT 0.0
 .TP
@@ -586,6 +582,17 @@ Default: \fB30s\fP
 .B \-\-frontend\-keep\-alive\-timeout=<DURATION>
 Specify   keep\-alive   timeout   for   frontend   HTTP/1
 connection.
+.sp
+Default: \fB1m\fP
+.UNINDENT
+.INDENT 0.0
+.TP
+.B \-\-frontend\-header\-timeout=<DURATION>
+Specify  duration  that the  server  waits  for an  HTTP
+request  header fields  to be  received completely.   On
+timeout, HTTP/1 and HTTP/2  connections are closed.  For
+HTTP/3,  the  stream  is shutdown,  and  the  connection
+itself is left intact.
 .sp
 Default: \fB1m\fP
 .UNINDENT
@@ -680,8 +687,8 @@ Default: \fB2m\fP
 .B \-\-ciphers=<SUITE>
 Set allowed  cipher list  for frontend  connection.  The
 format of the string is described in OpenSSL ciphers(1).
-This option  sets cipher suites for  TLSv1.2 or earlier.
-Use \fI\%\-\-tls13\-ciphers\fP for TLSv1.3.
+This  option  sets  cipher   suites  for  TLSv1.2.   Use
+\fI\%\-\-tls13\-ciphers\fP for TLSv1.3.
 .sp
 Default: \fBECDHE\-ECDSA\-AES128\-GCM\-SHA256:ECDHE\-RSA\-AES128\-GCM\-SHA256:ECDHE\-ECDSA\-AES256\-GCM\-SHA384:ECDHE\-RSA\-AES256\-GCM\-SHA384:ECDHE\-ECDSA\-CHACHA20\-POLY1305:ECDHE\-RSA\-CHACHA20\-POLY1305:DHE\-RSA\-AES128\-GCM\-SHA256:DHE\-RSA\-AES256\-GCM\-SHA384\fP
 .UNINDENT
@@ -691,7 +698,7 @@ Default: \fBECDHE\-ECDSA\-AES128\-GCM\-SHA256:ECDHE\-RSA\-AES128\-GCM\-SHA256:EC
 Set allowed  cipher list  for frontend  connection.  The
 format of the string is described in OpenSSL ciphers(1).
 This  option  sets  cipher   suites  for  TLSv1.3.   Use
-\fI\%\-\-ciphers\fP for TLSv1.2 or earlier.
+\fI\%\-\-ciphers\fP for TLSv1.2.
 .sp
 Default: \fBTLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256\fP
 .UNINDENT
@@ -700,8 +707,8 @@ Default: \fBTLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_
 .B \-\-client\-ciphers=<SUITE>
 Set  allowed cipher  list for  backend connection.   The
 format of the string is described in OpenSSL ciphers(1).
-This option  sets cipher suites for  TLSv1.2 or earlier.
-Use \fI\%\-\-tls13\-client\-ciphers\fP for TLSv1.3.
+This  option  sets  cipher   suites  for  TLSv1.2.   Use
+\fI\%\-\-tls13\-client\-ciphers\fP for TLSv1.3.
 .sp
 Default: \fBECDHE\-ECDSA\-AES128\-GCM\-SHA256:ECDHE\-RSA\-AES128\-GCM\-SHA256:ECDHE\-ECDSA\-AES256\-GCM\-SHA384:ECDHE\-RSA\-AES256\-GCM\-SHA384:ECDHE\-ECDSA\-CHACHA20\-POLY1305:ECDHE\-RSA\-CHACHA20\-POLY1305:DHE\-RSA\-AES128\-GCM\-SHA256:DHE\-RSA\-AES256\-GCM\-SHA384\fP
 .UNINDENT
@@ -711,15 +718,15 @@ Default: \fBECDHE\-ECDSA\-AES128\-GCM\-SHA256:ECDHE\-RSA\-AES128\-GCM\-SHA256:EC
 Set  allowed cipher  list for  backend connection.   The
 format of the string is described in OpenSSL ciphers(1).
 This  option  sets  cipher   suites  for  TLSv1.3.   Use
-\fI\%\-\-tls13\-client\-ciphers\fP for TLSv1.2 or earlier.
+\fI\%\-\-client\-ciphers\fP for TLSv1.2.
 .sp
 Default: \fBTLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256\fP
 .UNINDENT
 .INDENT 0.0
 .TP
-.B \-\-ecdh\-curves=<LIST>
-Set  supported  curve  list  for  frontend  connections.
-<LIST> is a  colon separated list of curve  NID or names
+.B \-\-groups=<LIST>
+Set the  supported group list for  frontend connections.
+<LIST> is a  colon separated list of group  NID or names
 in the preference order.  The supported curves depend on
 the  linked  OpenSSL  library.  This  function  requires
 OpenSSL >= 1.0.2.
@@ -737,12 +744,10 @@ enabled for backend connections.
 .B \-\-cacert=<PATH>
 Set path to trusted CA  certificate file.  It is used in
 backend  TLS connections  to verify  peer\(aqs certificate.
-It is also used to  verify OCSP response from the script
-set by \fI\%\-\-fetch\-ocsp\-response\-file\fP\&.  The  file must be in
-PEM format.   It can contain multiple  certificates.  If
-the  linked OpenSSL  is configured  to load  system wide
-certificates, they  are loaded at startup  regardless of
-this option.
+The file must be in PEM format.  It can contain multiple
+certificates.  If  the linked  OpenSSL is  configured to
+load  system  wide  certificates,  they  are  loaded  at
+startup regardless of this option.
 .UNINDENT
 .INDENT 0.0
 .TP
@@ -757,13 +762,12 @@ password protected it\(aqll be requested interactively.
 Specify  additional certificate  and  private key  file.
 nghttpx will  choose certificates based on  the hostname
 indicated by client using TLS SNI extension.  If nghttpx
-is  built with  OpenSSL  >= 1.0.2,  the shared  elliptic
-curves (e.g., P\-256) between  client and server are also
-taken into  consideration.  This allows nghttpx  to send
-ECDSA certificate  to modern clients, while  sending RSA
-based certificate to older  clients.  This option can be
-used  multiple  times.   To  make  OCSP  stapling  work,
-<CERTPATH> must be absolute path.
+is built with OpenSSL >= 1.0.2, the signature algorithms
+(e.g., ECDSA+SHA256) presented by  client are also taken
+into consideration.  This allows  nghttpx to send ML\-DSA
+or ECDSA  certificate to  modern clients,  while sending
+RSA based certificate to older clients.  This option can
+be used multiple times.
 .sp
 Additional parameter  can be specified in  <PARAM>.  The
 available <PARAM> is \(dqsct\-dir=<DIR>\(dq.
@@ -790,7 +794,7 @@ protocol comes  first.  The parameter must  be delimited
 by a single comma only  and any white spaces are treated
 as a part of protocol string.
 .sp
-Default: \fBh2,h2\-16,h2\-14,http/1.1\fP
+Default: \fBh2,http/1.1\fP
 .UNINDENT
 .INDENT 0.0
 .TP
@@ -832,12 +836,8 @@ done in  case\-insensitive manner.  The  versions between
 \fI\%\-\-tls\-min\-proto\-version\fP and  \fI\%\-\-tls\-max\-proto\-version\fP are
 enabled.  If the protocol list advertised by client does
 not  overlap  this range,  you  will  receive the  error
-message \(dqunknown protocol\(dq.  If a protocol version lower
-than TLSv1.2 is specified, make sure that the compatible
-ciphers are  included in \fI\%\-\-ciphers\fP option.   The default
-cipher  list  only   includes  ciphers  compatible  with
-TLSv1.2 or above.  The available versions are:
-TLSv1.3, TLSv1.2, TLSv1.1, and TLSv1.0
+message \(dqunknown protocol\(dq.  The available versions are:
+TLSv1.3 and TLSv1.2
 .sp
 Default: \fBTLSv1.2\fP
 .UNINDENT
@@ -850,7 +850,7 @@ done in  case\-insensitive manner.  The  versions between
 enabled.  If the protocol list advertised by client does
 not  overlap  this range,  you  will  receive the  error
 message \(dqunknown protocol\(dq.  The available versions are:
-TLSv1.3, TLSv1.2, TLSv1.1, and TLSv1.0
+TLSv1.3 and TLSv1.2
 .sp
 Default: \fBTLSv1.3\fP
 .UNINDENT
@@ -954,72 +954,6 @@ get TLS ticket keys.
 .UNINDENT
 .INDENT 0.0
 .TP
-.B \-\-fetch\-ocsp\-response\-file=<PATH>
-Path to  fetch\-ocsp\-response script file.  It  should be
-absolute path.
-.sp
-Default: \fB/usr/local/share/nghttp2/fetch\-ocsp\-response\fP
-.UNINDENT
-.INDENT 0.0
-.TP
-.B \-\-ocsp\-update\-interval=<DURATION>
-Set interval to update OCSP response cache.
-.sp
-Default: \fB4h\fP
-.UNINDENT
-.INDENT 0.0
-.TP
-.B \-\-ocsp\-startup
-Start  accepting connections  after initial  attempts to
-get OCSP responses  finish.  It does not  matter some of
-the  attempts  fail.  This  feature  is  useful if  OCSP
-responses   must    be   available    before   accepting
-connections.
-.UNINDENT
-.INDENT 0.0
-.TP
-.B \-\-no\-verify\-ocsp
-nghttpx does not verify OCSP response.
-.UNINDENT
-.INDENT 0.0
-.TP
-.B \-\-no\-ocsp
-Disable OCSP stapling.
-.UNINDENT
-.INDENT 0.0
-.TP
-.B \-\-tls\-session\-cache\-memcached=<HOST>,<PORT>[;tls]
-Specify  address of  memcached server  to store  session
-cache.   This  enables   shared  session  cache  between
-multiple   nghttpx  instances.    Optionally,  memcached
-connection can be encrypted with TLS by specifying \(dqtls\(dq
-parameter.
-.UNINDENT
-.INDENT 0.0
-.TP
-.B \-\-tls\-session\-cache\-memcached\-address\-family=(auto|IPv4|IPv6)
-Specify address family of memcached connections to store
-session cache.  If  \(dqauto\(dq is given, both  IPv4 and IPv6
-are considered.   If \(dqIPv4\(dq is given,  only IPv4 address
-is considered.  If \(dqIPv6\(dq is given, only IPv6 address is
-considered.
-.sp
-Default: \fBauto\fP
-.UNINDENT
-.INDENT 0.0
-.TP
-.B \-\-tls\-session\-cache\-memcached\-cert\-file=<PATH>
-Path to client certificate  for memcached connections to
-store session cache.
-.UNINDENT
-.INDENT 0.0
-.TP
-.B \-\-tls\-session\-cache\-memcached\-private\-key\-file=<PATH>
-Path to client private  key for memcached connections to
-store session cache.
-.UNINDENT
-.INDENT 0.0
-.TP
 .B \-\-tls\-dyn\-rec\-warmup\-threshold=<SIZE>
 Specify the  threshold size for TLS  dynamic record size
 behaviour.  During  a TLS  session, after  the threshold
@@ -1049,7 +983,7 @@ Default: \fB1s\fP
 .B \-\-no\-http2\-cipher\-block\-list
 Allow  block  listed  cipher suite  on  frontend  HTTP/2
 connection.                                          See
-\fI\%https://tools.ietf.org/html/rfc7540#appendix\-A\fP  for  the
+\X'tty: link https://tools.ietf.org/html/rfc7540#appendix-A'\fI\%https://tools.ietf.org/html/rfc7540#appendix\-A\fP\X'tty: link'  for  the
 complete HTTP/2 cipher suites block list.
 .UNINDENT
 .INDENT 0.0
@@ -1057,7 +991,7 @@ complete HTTP/2 cipher suites block list.
 .B \-\-client\-no\-http2\-cipher\-block\-list
 Allow  block  listed  cipher  suite  on  backend  HTTP/2
 connection.                                          See
-\fI\%https://tools.ietf.org/html/rfc7540#appendix\-A\fP  for  the
+\X'tty: link https://tools.ietf.org/html/rfc7540#appendix-A'\fI\%https://tools.ietf.org/html/rfc7540#appendix\-A\fP\X'tty: link'  for  the
 complete HTTP/2 cipher suites block list.
 .UNINDENT
 .INDENT 0.0
@@ -1127,8 +1061,7 @@ Default: \fB16K\fP
 .INDENT 0.0
 .TP
 .B \-\-tls\-ktls
-Enable   ktls.    For   server,  ktls   is   enable   if
-\fI\%\-\-tls\-session\-cache\-memcached\fP is not configured.
+Enable ktls.
 .UNINDENT
 .SS HTTP/2
 .INDENT 0.0
@@ -1667,7 +1600,7 @@ initial  DNS  query.  For  the  2nd  and later  queries,
 server is  given time based  on this timeout, and  it is
 scaled linearly.
 .sp
-Default: \fB5s\fP
+Default: \fB250ms\fP
 .UNINDENT
 .INDENT 0.0
 .TP
@@ -1675,7 +1608,7 @@ Default: \fB5s\fP
 Set the number of DNS query before nghttpx gives up name
 lookup.
 .sp
-Default: \fB2\fP
+Default: \fB3\fP
 .UNINDENT
 .INDENT 0.0
 .TP
@@ -1846,12 +1779,12 @@ as QUIC keying materials.  It is used to derive keys for
 encrypting tokens and Connection IDs.  It is not used to
 encrypt  QUIC  packets.  Each  line  of  this file  must
 contain  exactly  136  bytes  hex\-encoded  string  (when
-decoded the byte string is  68 bytes long).  The first 2
+decoded the byte string is  68 bytes long).  The first 3
 bits of  decoded byte  string are  used to  identify the
 keying material.  An  empty line or a  line which starts
 \(aq#\(aq  is ignored.   The file  can contain  more than  one
-keying materials.  Because the  identifier is 2 bits, at
-most 4 keying materials are  read and the remaining data
+keying materials.  Because the  identifier is 3 bits, at
+most 8 keying materials are  read and the remaining data
 is discarded.  The first keying  material in the file is
 primarily  used for  encryption and  decryption for  new
 connection.  The other ones are used to decrypt data for
@@ -1995,11 +1928,9 @@ request header field, do this:
 .INDENT 7.0
 .INDENT 3.5
 .sp
-.nf
-.ft C
+.EX
 add\-request\-header=foo: bar
-.ft P
-.fi
+.EE
 .UNINDENT
 .UNINDENT
 .sp
@@ -2007,11 +1938,9 @@ instead of:
 .INDENT 7.0
 .INDENT 3.5
 .sp
-.nf
-.ft C
+.EX
 add\-request\-header=\(dqfoo: bar\(dq
-.ft P
-.fi
+.EE
 .UNINDENT
 .UNINDENT
 .sp
@@ -2108,20 +2037,18 @@ than main process.
 .SH SERVER PUSH
 .sp
 nghttpx supports HTTP/2 server push in default mode with Link header
-field.  nghttpx looks for Link header field (\fI\%RFC 5988\fP) in response headers from
+field.  nghttpx looks for Link header field (\X'tty: link http://tools.ietf.org/html/rfc5988'\fI\%RFC 5988\fP\X'tty: link') in response headers from
 backend server and extracts URI\-reference with parameter
-\fBrel=preload\fP (see \fI\%preload\fP)
+\fBrel=preload\fP (see \X'tty: link http://w3c.github.io/preload/#interoperability-with-http-link-header'\fI\%preload\fP\X'tty: link')
 and pushes those URIs to the frontend client. Here is a sample Link
 header field to initiate server push:
 .INDENT 0.0
 .INDENT 3.5
 .sp
-.nf
-.ft C
+.EX
 Link: </fonts/font.woff>; rel=preload
 Link: </css/theme.css>; rel=preload
-.ft P
-.fi
+.EE
 .UNINDENT
 .UNINDENT
 .sp
@@ -2152,35 +2079,6 @@ specified socket already exists in the file system, nghttpx first
 deletes it.  However, if SIGUSR2 is used to execute new binary and
 both old and new configurations use same filename, new binary does not
 delete the socket and continues to use it.
-.SH OCSP STAPLING
-.sp
-OCSP query is done using external Python script
-\fBfetch\-ocsp\-response\fP, which has been originally developed in Perl
-as part of h2o project (\fI\%https://github.com/h2o/h2o\fP), and was
-translated into Python.
-.sp
-The script file is usually installed under
-\fB$(prefix)/share/nghttp2/\fP directory.  The actual path to script can
-be customized using \fI\%\-\-fetch\-ocsp\-response\-file\fP option.
-.sp
-If OCSP query is failed, previous OCSP response, if any, is continued
-to be used.
-.sp
-\fI\%\-\-fetch\-ocsp\-response\-file\fP option provides wide range of
-possibility to manage OCSP response.  It can take an arbitrary script
-or executable.  The requirement is that it supports the command\-line
-interface of \fBfetch\-ocsp\-response\fP script, and it must return a
-valid DER encoded OCSP response on success.  It must return exit code
-0 on success, and 75 for temporary error, and the other error code for
-generic failure.  For large cluster of servers, it is not efficient
-for each server to perform OCSP query using \fBfetch\-ocsp\-response\fP\&.
-Instead, you can retrieve OCSP response in some way, and store it in a
-disk or a shared database.  Then specify a program in
-\fI\%\-\-fetch\-ocsp\-response\-file\fP to fetch it from those stores.
-This could provide a way to share the OCSP response between fleet of
-servers, and also any OCSP query strategy can be applied which may be
-beyond the ability of nghttpx itself or \fBfetch\-ocsp\-response\fP
-script.
 .SH TLS SESSION RESUMPTION
 .sp
 nghttpx supports TLS session resumption through both session ID and
@@ -2188,16 +2086,6 @@ session ticket.
 .SS SESSION ID RESUMPTION
 .sp
 By default, session ID is shared by all worker threads.
-.sp
-If \fI\%\-\-tls\-session\-cache\-memcached\fP is given, nghttpx will
-insert serialized session data to memcached with
-\fBnghttpx:tls\-session\-cache:\fP + lowercase hex string of session ID
-as a memcached entry key, with expiry time 12 hours.  Session timeout
-is set to 12 hours.
-.sp
-By default, connections to memcached server are not encrypted.  To
-enable encryption, use \fBtls\fP keyword in
-\fI\%\-\-tls\-session\-cache\-memcached\fP option.
 .SS TLS SESSION TICKET RESUMPTION
 .sp
 By default, session ticket is shared by all worker threads.  The
@@ -2216,8 +2104,7 @@ memcached is the binary format described below:
 .INDENT 0.0
 .INDENT 3.5
 .sp
-.nf
-.ft C
+.EX
 +\-\-\-\-\-\-\-\-\-\-\-\-\-\-+\-\-\-\-\-\-\-+\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-+
 | VERSION (4)  |LEN (2)|KEY(48 or 80) ...
 +\-\-\-\-\-\-\-\-\-\-\-\-\-\-+\-\-\-\-\-\-\-+\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-+
@@ -2225,8 +2112,7 @@ memcached is the binary format described below:
                |                        |
                +\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-+
                (LEN, KEY) pair can be repeated
-.ft P
-.fi
+.EE
 .UNINDENT
 .UNINDENT
 .sp
@@ -2252,15 +2138,15 @@ automatically.  To rotate key, one has to restart nghttpx (see
 SIGNALS).
 .SH CERTIFICATE TRANSPARENCY
 .sp
-nghttpx supports TLS \fBsigned_certificate_timestamp\fP extension (\fI\%RFC
-6962\fP).  The relevant options
+nghttpx supports TLS \fBsigned_certificate_timestamp\fP extension (\X'tty: link https://tools.ietf.org/html/rfc6962'\fI\%RFC
+6962\fP\X'tty: link').  The relevant options
 are \fI\%\-\-tls\-sct\-dir\fP and \fBsct\-dir\fP parameter in
 \fI\%\-\-subcert\fP\&.  They takes a directory, and nghttpx reads all
 files whose extension is \fB\&.sct\fP under the directory.  The \fB*.sct\fP
 files are encoded as \fBSignedCertificateTimestamp\fP struct described
-in \fI\%section 3.2 of RFC 69662\fP\&.  This format is
-the same one used by \fI\%nginx\-ct\fP and \fI\%mod_ssl_ct\fP\&.
-\fI\%ct\-submit\fP can be
+in \X'tty: link https://tools.ietf.org/html/rfc6962#section-3.2'\fI\%section 3.2 of RFC 69662\fP\X'tty: link'\&.  This format is
+the same one used by \X'tty: link https://github.com/grahamedgecombe/nginx-ct'\fI\%nginx\-ct\fP\X'tty: link' and \X'tty: link https://httpd.apache.org/docs/trunk/mod/mod_ssl_ct.html'\fI\%mod_ssl_ct\fP\X'tty: link'\&.
+\X'tty: link https://github.com/grahamedgecombe/ct-submit'\fI\%ct\-submit\fP\X'tty: link' can be
 used to submit certificates to log servers, and obtain the
 \fBSignedCertificateTimestamp\fP struct which can be used with nghttpx.
 .SH MRUBY SCRIPTING
@@ -2504,7 +2390,7 @@ On assignment, copy of given value is assigned.  The path does
 not include authority component of URI.  This may include
 query component.  nghttpx makes certain normalization for
 path.  It decodes percent\-encoding for unreserved characters
-(see \fI\%https://tools.ietf.org/html/rfc3986#section\-2.3\fP), and
+(see \X'tty: link https://tools.ietf.org/html/rfc3986#section-2.3'\fI\%https://tools.ietf.org/html/rfc3986#section\-2.3\fP\X'tty: link'), and
 resolves \(dq..\(dq and \(dq.\(dq.  But it may leave characters which
 should be percent\-encoded as is. So be careful when comparing
 path against desired string.
@@ -2643,8 +2529,7 @@ Modify request path:
 .INDENT 0.0
 .INDENT 3.5
 .sp
-.nf
-.ft C
+.EX
 class App
   def on_req(env)
     env.req.path = \(dq/apps#{env.req.path}\(dq
@@ -2652,8 +2537,7 @@ class App
 end
 
 App.new
-.ft P
-.fi
+.EE
 .UNINDENT
 .UNINDENT
 .sp
@@ -2664,8 +2548,7 @@ addresses:
 .INDENT 0.0
 .INDENT 3.5
 .sp
-.nf
-.ft C
+.EX
 class App
   def on_req(env)
     allowed_clients = [\(dq127.0.0.1\(dq, \(dq::1\(dq]
@@ -2679,8 +2562,7 @@ class App
 end
 
 App.new
-.ft P
-.fi
+.EE
 .UNINDENT
 .UNINDENT
 .SH API ENDPOINTS

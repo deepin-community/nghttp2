@@ -27,21 +27,25 @@
 
 #ifdef HAVE_CONFIG_H
 #  include <config.h>
-#endif // HAVE_CONFIG_H
+#endif // defined(HAVE_CONFIG_H)
+
+#define MUNIT_ENABLE_ASSERT_ALIASES
+
+#include "munit.h"
 
 namespace nghttp2 {
 
-void test_pool_recycle(void);
-void test_memchunks_append(void);
-void test_memchunks_drain(void);
-void test_memchunks_riovec(void);
-void test_memchunks_recycle(void);
-void test_memchunks_reset(void);
-void test_peek_memchunks_append(void);
-void test_peek_memchunks_disable_peek_drain(void);
-void test_peek_memchunks_disable_peek_no_drain(void);
-void test_peek_memchunks_reset(void);
+extern const MunitSuite memchunk_suite;
+
+munit_void_test_decl(test_pool_recycle)
+munit_void_test_decl(test_memchunks_append)
+munit_void_test_decl(test_memchunks_drain)
+munit_void_test_decl(test_memchunks_riovec)
+munit_void_test_decl(test_memchunks_recycle)
+munit_void_test_decl(test_memchunks_reset)
+munit_void_test_decl(test_memchunks_reserve)
+munit_void_test_decl(test_memchunkbuffer_drain_reset)
 
 } // namespace nghttp2
 
-#endif // MEMCHUNK_TEST_H
+#endif // !defined(MEMCHUNK_TEST_H)

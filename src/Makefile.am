@@ -39,40 +39,52 @@ AM_CPPFLAGS = \
 	-I$(top_srcdir)/lib/includes \
 	-I$(top_builddir)/lib/includes \
 	-I$(top_srcdir)/lib \
-	-I$(top_srcdir)/third-party \
+	-I$(top_srcdir)/third-party/urlparse \
 	-I$(top_srcdir)/third-party/llhttp/include \
 	@JEMALLOC_CFLAGS@ \
 	@LIBXML2_CFLAGS@ \
 	@LIBEV_CFLAGS@ \
 	@LIBNGHTTP3_CFLAGS@ \
+	@LIBNGTCP2_CRYPTO_WOLFSSL_CFLAGS@ \
 	@LIBNGTCP2_CRYPTO_QUICTLS_CFLAGS@ \
+	@LIBNGTCP2_CRYPTO_LIBRESSL_CFLAGS@ \
 	@LIBNGTCP2_CRYPTO_BORINGSSL_CFLAGS@ \
+	@LIBNGTCP2_CRYPTO_OSSL_CFLAGS@ \
 	@LIBNGTCP2_CFLAGS@ \
+	@WOLFSSL_CFLAGS@ \
 	@OPENSSL_CFLAGS@ \
 	@LIBCARES_CFLAGS@ \
 	@JANSSON_CFLAGS@ \
 	@LIBBPF_CFLAGS@ \
 	@ZLIB_CFLAGS@ \
+	@LIBBROTLIENC_CFLAGS@ \
+	@LIBBROTLIDEC_CFLAGS@ \
 	@EXTRA_DEFS@ \
 	@DEFS@
 AM_LDFLAGS = @LIBTOOL_LDFLAGS@
 
 LDADD = $(top_builddir)/lib/libnghttp2.la \
-	$(top_builddir)/third-party/liburl-parser.la \
+	$(top_builddir)/third-party/liburlparse.la \
 	$(top_builddir)/third-party/libllhttp.la \
 	@JEMALLOC_LIBS@ \
 	@LIBXML2_LIBS@ \
 	@LIBEV_LIBS@ \
 	@LIBNGHTTP3_LIBS@ \
+	@LIBNGTCP2_CRYPTO_WOLFSSL_LIBS@ \
 	@LIBNGTCP2_CRYPTO_QUICTLS_LIBS@ \
+	@LIBNGTCP2_CRYPTO_LIBRESSL_LIBS@ \
 	@LIBNGTCP2_CRYPTO_BORINGSSL_LIBS@ \
+	@LIBNGTCP2_CRYPTO_OSSL_LIBS@ \
 	@LIBNGTCP2_LIBS@ \
+	@WOLFSSL_LIBS@ \
 	@OPENSSL_LIBS@ \
 	@LIBCARES_LIBS@ \
 	@SYSTEMD_LIBS@ \
 	@JANSSON_LIBS@ \
 	@LIBBPF_LIBS@ \
 	@ZLIB_LIBS@ \
+	@LIBBROTLIENC_LIBS@ \
+	@LIBBROTLIDEC_LIBS@ \
 	@APPLDFLAGS@
 
 if ENABLE_APP
@@ -113,8 +125,7 @@ h2load_SOURCES = util.cc util.h \
 if ENABLE_HTTP3
 h2load_SOURCES += \
 	h2load_http3_session.cc h2load_http3_session.h \
-	h2load_quic.cc h2load_quic.h \
-	quic.cc quic.h
+	h2load_quic.cc h2load_quic.h
 endif # ENABLE_HTTP3
 
 NGHTTPX_SRCS = \
@@ -158,7 +169,6 @@ NGHTTPX_SRCS = \
 	shrpx_health_monitor_downstream_connection.cc \
 	shrpx_health_monitor_downstream_connection.h \
 	shrpx_null_downstream_connection.cc shrpx_null_downstream_connection.h \
-	shrpx_exec.cc shrpx_exec.h \
 	shrpx_dns_resolver.cc shrpx_dns_resolver.h \
 	shrpx_dual_dns_resolver.cc shrpx_dual_dns_resolver.h \
 	shrpx_dns_tracker.cc shrpx_dns_tracker.h \
@@ -181,7 +191,7 @@ NGHTTPX_SRCS += \
 	shrpx_quic_connection_handler.cc shrpx_quic_connection_handler.h \
 	shrpx_http3_upstream.cc shrpx_http3_upstream.h \
 	http3.cc http3.h \
-	quic.cc quic.h
+	siphash.cc siphash.h
 endif # ENABLE_HTTP3
 
 noinst_LIBRARIES = libnghttpx.a
@@ -203,7 +213,6 @@ libnghttpx_a_CPPFLAGS += -I${top_srcdir}/third-party/neverbleed
 nghttpx_LDADD += ${top_builddir}/third-party/libneverbleed.la
 endif # HAVE_NEVERBLEED
 
-if HAVE_CUNIT
 check_PROGRAMS += nghttpx-unittest
 nghttpx_unittest_SOURCES = shrpx-unittest.cc \
 	shrpx_tls_test.cc shrpx_tls_test.h \
@@ -219,10 +228,16 @@ nghttpx_unittest_SOURCES = shrpx-unittest.cc \
 	buffer_test.cc buffer_test.h \
 	memchunk_test.cc memchunk_test.h \
 	template_test.cc template_test.h \
-	base64_test.cc base64_test.h
+	base64_test.cc base64_test.h \
+	$(top_srcdir)/tests/munit/munit.c $(top_srcdir)/tests/munit/munit.h \
+	$(top_srcdir)/tests/munit/munitxx.h
+if ENABLE_HTTP3
+nghttpx_unittest_SOURCES += siphash_test.cc siphash_test.h
+endif # ENABLE_HTTP3
 nghttpx_unittest_CPPFLAGS = ${AM_CPPFLAGS} \
+	-I$(top_srcdir)/tests/munit \
 	-DNGHTTP2_SRC_DIR=\"$(top_srcdir)/src\"
-nghttpx_unittest_LDADD = libnghttpx.a ${LDADD} @CUNIT_LIBS@ @TESTLDADD@
+nghttpx_unittest_LDADD = libnghttpx.a ${LDADD} @TESTLDADD@
 
 if HAVE_MRUBY
 nghttpx_unittest_CPPFLAGS += \
@@ -237,7 +252,6 @@ nghttpx_unittest_LDADD += ${top_builddir}/third-party/libneverbleed.la
 endif # HAVE_NEVERBLEED
 
 TESTS += nghttpx-unittest
-endif # HAVE_CUNIT
 
 endif # ENABLE_APP
 

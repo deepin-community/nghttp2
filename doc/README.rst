@@ -68,7 +68,7 @@ The example follows::
      * Callback function invoked when |session| wants to send data to
      * remote peer.
      */
-    typedef ssize_t (*nghttp2_send_callback)
+    typedef nghttp2_ssize (*nghttp2_send_callback2)
     (nghttp2_session *session,
      const uint8_t *data, size_t length, int flags, void *user_data);
 
@@ -111,7 +111,7 @@ The example follows::
 
 ``@struct`` is used to refer to the struct. Currently, only struct
 typedefs are supported. The comment block is used for the document for
-the struct type itself.To document each member, put comment block
+the struct type itself. To document each member, put comment block
 starting with the line ``/**`` and ending with the ``*/`` just before
 the member.  When the line starts with ``}`` is encountered, the
 ``mkapiref.py`` extracts strings next to ``}`` as the name of struct.

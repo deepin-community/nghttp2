@@ -24,11 +24,11 @@
  */
 #ifdef HAVE_CONFIG_H
 #  include <config.h>
-#endif // HAVE_CONFIG_H
+#endif // defined(HAVE_CONFIG_H)
 
 #ifdef HAVE_UNISTD_H
 #  include <unistd.h>
-#endif // HAVE_UNISTD_H
+#endif // defined(HAVE_UNISTD_H)
 #include <getopt.h>
 
 #include <cstdio>
@@ -41,6 +41,7 @@
 
 #include <jansson.h>
 
+#define NGHTTP2_NO_SSIZE_T
 #include <nghttp2/nghttp2.h>
 
 #include "template.h"
@@ -56,18 +57,18 @@ static inflate_config config;
 
 static uint8_t to_ud(char c) {
   if (c >= 'A' && c <= 'Z') {
-    return c - 'A' + 10;
+    return static_cast<uint8_t>(c - 'A' + 10);
   } else if (c >= 'a' && c <= 'z') {
-    return c - 'a' + 10;
+    return static_cast<uint8_t>(c - 'a' + 10);
   } else {
-    return c - '0';
+    return static_cast<uint8_t>(c - '0');
   }
 }
 
 static void decode_hex(uint8_t *dest, const char *src, size_t len) {
   size_t i;
   for (i = 0; i < len; i += 2) {
-    *dest++ = to_ud(src[i]) << 4 | to_ud(src[i + 1]);
+    *dest++ = static_cast<uint8_t>(to_ud(src[i]) << 4 | to_ud(src[i + 1]));
   }
 }
 
@@ -78,10 +79,11 @@ static void to_json(nghttp2_hd_inflater *inflater, json_t *headers,
   json_object_set(obj, "wire", wire);
   json_object_set(obj, "headers", headers);
   auto max_dyn_table_size =
-      nghttp2_hd_inflate_get_max_dynamic_table_size(inflater);
+    nghttp2_hd_inflate_get_max_dynamic_table_size(inflater);
   if (old_settings_table_size != max_dyn_table_size) {
-    json_object_set_new(obj, "header_table_size",
-                        json_integer(max_dyn_table_size));
+    json_object_set_new(
+      obj, "header_table_size",
+      json_integer(static_cast<json_int_t>(max_dyn_table_size)));
   }
   if (config.dump_header_table) {
     json_object_set_new(obj, "header_table",
@@ -93,11 +95,10 @@ static void to_json(nghttp2_hd_inflater *inflater, json_t *headers,
 }
 
 static int inflate_hd(json_t *obj, nghttp2_hd_inflater *inflater, int seq) {
-  ssize_t rv;
   nghttp2_nv nv;
   int inflate_flags;
   size_t old_settings_table_size =
-      nghttp2_hd_inflate_get_max_dynamic_table_size(inflater);
+    nghttp2_hd_inflate_get_max_dynamic_table_size(inflater);
 
   auto wire = json_object_get(obj, "wire");
 
@@ -120,8 +121,8 @@ static int inflate_hd(json_t *obj, nghttp2_hd_inflater *inflater, int seq) {
               seq);
       return -1;
     }
-    rv = nghttp2_hd_inflate_change_table_size(inflater,
-                                              json_integer_value(table_size));
+    auto rv = nghttp2_hd_inflate_change_table_size(
+      inflater, static_cast<size_t>(json_integer_value(table_size)));
     if (rv != 0) {
       fprintf(stderr,
               "nghttp2_hd_change_table_size() failed with error %s at %d\n",
@@ -147,16 +148,17 @@ static int inflate_hd(json_t *obj, nghttp2_hd_inflater *inflater, int seq) {
   auto p = buf.data();
   for (;;) {
     inflate_flags = 0;
-    rv = nghttp2_hd_inflate_hd(inflater, &nv, &inflate_flags, p, buflen, 1);
+    auto rv =
+      nghttp2_hd_inflate_hd3(inflater, &nv, &inflate_flags, p, buflen, 1);
     if (rv < 0) {
       fprintf(stderr, "inflate failed with error code %zd at %d\n", rv, seq);
       exit(EXIT_FAILURE);
     }
     p += rv;
-    buflen -= rv;
+    buflen -= as_unsigned(rv);
     if (inflate_flags & NGHTTP2_HD_INFLATE_EMIT) {
       json_array_append_new(
-          headers, dump_header(nv.name, nv.namelen, nv.value, nv.valuelen));
+        headers, dump_header(nv.name, nv.namelen, nv.value, nv.valuelen));
     }
     if (inflate_flags & NGHTTP2_HD_INFLATE_FINAL) {
       break;
@@ -203,7 +205,7 @@ static int perform(void) {
       fprintf(stderr, "Unexpected JSON type at %zu. It should be object.\n", i);
       continue;
     }
-    if (inflate_hd(obj, inflater, i) != 0) {
+    if (inflate_hd(obj, inflater, static_cast<int>(i)) != 0) {
       continue;
     }
     if (i + 1 < len) {
@@ -254,7 +256,7 @@ OPTIONS:
 }
 
 constexpr static struct option long_options[] = {
-    {"dump-header-table", no_argument, nullptr, 'd'}, {nullptr, 0, nullptr, 0}};
+  {"dump-header-table", no_argument, nullptr, 'd'}, {nullptr, 0, nullptr, 0}};
 
 int main(int argc, char **argv) {
   config.dump_header_table = 0;
