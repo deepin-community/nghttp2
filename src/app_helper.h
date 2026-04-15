@@ -31,10 +31,9 @@
 #include <cstdlib>
 #ifdef HAVE_SYS_TIME_H
 #  include <sys/time.h>
-#endif // HAVE_SYS_TIME_H
+#endif // defined(HAVE_SYS_TIME_H)
 #include <poll.h>
 
-#include <map>
 #include <chrono>
 
 #include <nghttp2/nghttp2.h>
@@ -90,9 +89,6 @@ void set_color_output(bool f);
 // used.
 void set_output(FILE *file);
 
-ssize_t deflate_data(uint8_t *out, size_t outlen, const uint8_t *in,
-                     size_t inlen);
-
 } // namespace nghttp2
 
-#endif // APP_HELPER_H
+#endif // !defined(APP_HELPER_H)

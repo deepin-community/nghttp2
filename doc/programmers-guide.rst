@@ -40,28 +40,28 @@ most event-based architecture applications use is single thread per
 core, and handling one connection I/O is done by single thread.
 
 To feed input to :type:`nghttp2_session` object, one can use
-`nghttp2_session_recv()` or `nghttp2_session_mem_recv()` functions.
+`nghttp2_session_recv()` or `nghttp2_session_mem_recv2()` functions.
 They behave similarly, and the difference is that
 `nghttp2_session_recv()` will use :type:`nghttp2_read_callback` to get
-input.  On the other hand, `nghttp2_session_mem_recv()` will take
-input as its parameter.  If in doubt, use `nghttp2_session_mem_recv()`
-since it is simpler, and could be faster since it avoids calling
-callback function.
+input.  On the other hand, `nghttp2_session_mem_recv2()` will take
+input as its parameter.  If in doubt, use
+`nghttp2_session_mem_recv2()` since it is simpler, and could be faster
+since it avoids calling callback function.
 
 To get output from :type:`nghttp2_session` object, one can use
-`nghttp2_session_send()` or `nghttp2_session_mem_send()`.  The
+`nghttp2_session_send()` or `nghttp2_session_mem_send2()`.  The
 difference between them is that the former uses
 :type:`nghttp2_send_callback` to pass output to an application.  On
 the other hand, the latter returns the output to the caller.  If in
-doubt, use `nghttp2_session_mem_send()` since it is simpler.  But
+doubt, use `nghttp2_session_mem_send2()` since it is simpler.  But
 `nghttp2_session_send()` might be easier to use if the output buffer
 an application has is fixed sized.
 
-In general, an application should call `nghttp2_session_mem_send()`
+In general, an application should call `nghttp2_session_mem_send2()`
 when it gets input from underlying connection.  Since there is great
 chance to get something pushed into transmission queue while the call
-of `nghttp2_session_mem_send()`, it is recommended to call
-`nghttp2_session_mem_recv()` after `nghttp2_session_mem_send()`.
+of `nghttp2_session_mem_send2()`, it is recommended to call
+`nghttp2_session_mem_recv2()` after `nghttp2_session_mem_send2()`.
 
 There is a question when we are safe to close HTTP/2 session without
 waiting for the closure of underlying connection.  We offer 2 API
@@ -70,7 +70,7 @@ calls for this: `nghttp2_session_want_read()` and
 can destroy :type:`nghttp2_session`, and then close the underlying
 connection.  But make sure that the buffered output has been
 transmitted to the peer before closing the connection when
-`nghttp2_session_mem_send()` is used, since
+`nghttp2_session_mem_send2()` is used, since
 `nghttp2_session_want_write()` does not take into account the
 transmission of the buffered data outside of :type:`nghttp2_session`.
 
@@ -87,18 +87,18 @@ The header files are also available online: :doc:`nghttp2.h` and
 Remarks
 -------
 
-Do not call `nghttp2_session_send()`, `nghttp2_session_mem_send()`,
-`nghttp2_session_recv()` or `nghttp2_session_mem_recv()` from the
+Do not call `nghttp2_session_send()`, `nghttp2_session_mem_send2()`,
+`nghttp2_session_recv()` or `nghttp2_session_mem_recv2()` from the
 nghttp2 callback functions directly or indirectly. It will lead to the
 crash.  You can submit requests or frames in the callbacks then call
 these functions outside the callbacks.
 
-`nghttp2_session_send()` and `nghttp2_session_mem_send()` send first
+`nghttp2_session_send()` and `nghttp2_session_mem_send2()` send first
 24 bytes of client magic string (MAGIC)
 (:macro:`NGHTTP2_CLIENT_MAGIC`) on client configuration.  The
 applications are responsible to send SETTINGS frame as part of
 connection preface using `nghttp2_submit_settings()`.  Similarly,
-`nghttp2_session_recv()` and `nghttp2_session_mem_recv()` consume
+`nghttp2_session_recv()` and `nghttp2_session_mem_recv2()` consume
 MAGIC on server configuration unless
 `nghttp2_option_set_no_recv_client_magic()` is used with nonzero
 option value.
@@ -222,7 +222,7 @@ above, the following code does not work:
 
 .. code-block:: c
 
-    nghttp2_submit_response(...)
+    nghttp2_submit_response2(...)
     nghttp2_submit_rst_stream(...)
 
 RST_STREAM cancels HEADERS (and DATA), and just RST_STREAM is sent.
@@ -258,9 +258,9 @@ For example, we will illustrate how to send `ALTSVC
       const char *field;
     } alt_svc;
 
-    ssize_t pack_extension_callback(nghttp2_session *session, uint8_t *buf,
-                                    size_t len, const nghttp2_frame *frame,
-                                    void *user_data) {
+    nghttp2_ssize pack_extension_callback(nghttp2_session *session, uint8_t *buf,
+                                          size_t len, const nghttp2_frame *frame,
+                                          void *user_data) {
       const alt_svc *altsvc = (const alt_svc *)frame->ext.payload;
       size_t originlen = strlen(altsvc->origin);
       size_t fieldlen = strlen(altsvc->field);
@@ -482,45 +482,26 @@ be called as usual.
 Stream priorities
 -----------------
 
-By default, the stream prioritization scheme described in :rfc:`7540`
-is used.  This scheme has been formally deprecated by :rfc:`9113`.  In
-order to disable it, send
+The stream prioritization scheme described in :rfc:`7540`, which has
+been formally deprecated by :rfc:`9113`, has been removed.  An
+application is advised to send
 :enum:`nghttp2_settings_id.NGHTTP2_SETTINGS_NO_RFC7540_PRIORITIES` of
-value of 1 via `nghttp2_submit_settings()`.  This settings ID is
-defined by :rfc:`9218`.  The sender of this settings value disables
-RFC 7540 priorities, and instead it enables RFC 9218 Extensible
-Prioritization Scheme.  This new prioritization scheme has 2 methods
-to convey the stream priorities to a remote endpoint: Priority header
-field and PRIORITY_UPDATE frame.  nghttp2 supports both methods.  In
-order to receive and process PRIORITY_UPDATE frame, server has to call
-``nghttp2_option_set_builtin_recv_extension_type(option,
-NGHTTP2_PRIORITY_UPDATE)`` (see the above section), and pass the
-option to `nghttp2_session_server_new2()` or
+value of 1 via `nghttp2_submit_settings()`, and migrate to
+:rfc:`9218`.
+
+The sender of this settings value disables :rfc:`7540` priorities, and
+instead it enables :rfc:`9218` Extensible Prioritization Scheme.  This
+new prioritization scheme has 2 methods to convey the stream
+priorities to a remote endpoint: Priority header field and
+PRIORITY_UPDATE frame.  nghttp2 supports both methods.  In order to
+receive and process PRIORITY_UPDATE frame, server has to call
+`nghttp2_option_set_builtin_recv_extension_type()` with
+NGHTTP2_PRIORITY_UPDATE as type argument (see the above section), and
+pass the option to `nghttp2_session_server_new2()` or
 `nghttp2_session_server_new3()` to create a server session.  Client
-can send Priority header field via `nghttp2_submit_request()`.  It can
-also send PRIORITY_UPDATE frame via
+can send Priority header field via `nghttp2_submit_request2()`.  It
+can also send PRIORITY_UPDATE frame via
 `nghttp2_submit_priority_update()`.  Server processes Priority header
 field in a request header field and updates the stream priority unless
 HTTP messaging rule enforcement is disabled (see
 `nghttp2_option_set_no_http_messaging()`).
-
-For the purpose of smooth migration from RFC 7540 priorities, client
-is advised to send
-:enum:`nghttp2_settings_id.NGHTTP2_SETTINGS_NO_RFC7540_PRIORITIES` of
-value of 1.  Until it receives the first server SETTINGS frame, it can
-send both RFC 7540 and RFC 9128 priority signals.  If client receives
-SETTINGS_NO_RFC7540_PRIORITIES of value of 0, or it is omitted ,
-client stops sending PRIORITY_UPDATE frame.  Priority header field
-will be sent in anyway since it is an end-to-end signal.  If
-SETTINGS_NO_RFC7540_PRIORITIES of value of 1 is received, client stops
-sending RFC 7540 priority signals.  This is the advice described in
-:rfc:`9218#section-2.1.1`.
-
-Server has an optional mechanism to fallback to RFC 7540 priorities.
-By default, if server sends SETTINGS_NO_RFC7540_PRIORITIES of value of
-1, it completely disables RFC 7540 priorities and no fallback.  By
-setting nonzero value to
-`nghttp2_option_set_server_fallback_rfc7540_priorities()`, server
-falls back to RFC 7540 priorities if it sends
-SETTINGS_NO_RFC7540_PRIORITIES value of value of 1, and client omits
-SETTINGS_NO_RFC7540_PRIORITIES in its SETTINGS frame.
