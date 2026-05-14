@@ -102,24 +102,24 @@ void settings_timeout_cb(struct ev_loop *loop, ev_timer *w, int revents) {
 
 LiveCheck::LiveCheck(struct ev_loop *loop, SSL_CTX *ssl_ctx, Worker *worker,
                      DownstreamAddr *addr, std::mt19937 &gen)
-    : conn_(loop, -1, nullptr, worker->get_mcpool(),
-            worker->get_downstream_config()->timeout.write,
-            worker->get_downstream_config()->timeout.read, {}, {}, writecb,
-            readcb, timeoutcb, this, get_config()->tls.dyn_rec.warmup_threshold,
-            get_config()->tls.dyn_rec.idle_timeout, Proto::NONE),
-      wb_(worker->get_mcpool()),
-      gen_(gen),
-      read_(&LiveCheck::noop),
-      write_(&LiveCheck::noop),
-      worker_(worker),
-      ssl_ctx_(ssl_ctx),
-      addr_(addr),
-      session_(nullptr),
-      raddr_(nullptr),
-      success_count_(0),
-      fail_count_(0),
-      settings_ack_received_(false),
-      session_closing_(false) {
+  : conn_(loop, -1, nullptr, worker->get_mcpool(),
+          worker->get_downstream_config()->timeout.write,
+          worker->get_downstream_config()->timeout.read, {}, {}, writecb,
+          readcb, timeoutcb, this, get_config()->tls.dyn_rec.warmup_threshold,
+          get_config()->tls.dyn_rec.idle_timeout, Proto::NONE),
+    wb_(worker->get_mcpool()),
+    gen_(gen),
+    read_(&LiveCheck::noop),
+    write_(&LiveCheck::noop),
+    worker_(worker),
+    ssl_ctx_(ssl_ctx),
+    addr_(addr),
+    session_(nullptr),
+    raddr_(nullptr),
+    success_count_(0),
+    fail_count_(0),
+    settings_ack_received_(false),
+    session_closing_(false) {
   ev_timer_init(&backoff_timer_, backoff_timeoutcb, 0., 0.);
   backoff_timer_.data = this;
 
@@ -174,14 +174,14 @@ constexpr auto JITTER = 0.2;
 
 void LiveCheck::schedule() {
   auto base_backoff =
-      util::int_pow(MULTIPLIER, std::min(fail_count_, MAX_BACKOFF_EXP));
+    util::int_pow(MULTIPLIER, std::min(fail_count_, MAX_BACKOFF_EXP));
   auto dist = std::uniform_real_distribution<>(-JITTER * base_backoff,
                                                JITTER * base_backoff);
 
   auto &downstreamconf = *get_config()->conn.downstream;
 
   auto backoff =
-      std::min(downstreamconf.timeout.max_backoff, base_backoff + dist(gen_));
+    std::min(downstreamconf.timeout.max_backoff, base_backoff + dist(gen_));
 
   ev_timer_set(&backoff_timer_, backoff, 0.);
   ev_timer_start(conn_.loop, &backoff_timer_);
@@ -228,17 +228,17 @@ int LiveCheck::initiate_connection() {
   if (addr_->dns) {
     if (!dns_query_) {
       auto dns_query = std::make_unique<DNSQuery>(
-          addr_->host, [this](DNSResolverStatus status, const Address *result) {
-            int rv;
+        addr_->host, [this](DNSResolverStatus status, const Address *result) {
+          int rv;
 
-            if (status == DNSResolverStatus::OK) {
-              *this->resolved_addr_ = *result;
-            }
-            rv = this->initiate_connection();
-            if (rv != 0) {
-              this->on_failure();
-            }
-          });
+          if (status == DNSResolverStatus::OK) {
+            *this->resolved_addr_ = *result;
+          }
+          rv = this->initiate_connection();
+          if (rv != 0) {
+            this->on_failure();
+          }
+        });
       auto dns_tracker = worker_->get_dns_tracker();
 
       if (!resolved_addr_) {
@@ -298,9 +298,9 @@ int LiveCheck::initiate_connection() {
 
   if (addr_->tls) {
     auto sni_name =
-        addr_->sni.empty() ? StringRef{addr_->host} : StringRef{addr_->sni};
-    if (!util::numeric_host(sni_name.c_str())) {
-      SSL_set_tlsext_host_name(conn_.tls.ssl, sni_name.c_str());
+      addr_->sni.empty() ? StringRef{addr_->host} : StringRef{addr_->sni};
+    if (!util::numeric_host(sni_name.data())) {
+      SSL_set_tlsext_host_name(conn_.tls.ssl, sni_name.data());
     }
 
     auto session = tls::reuse_tls_session(addr_->tls_session_cache);
@@ -411,7 +411,7 @@ int LiveCheck::tls_handshake() {
 
   switch (addr_->proto) {
   case Proto::HTTP1:
-    if (proto.empty() || proto == StringRef::from_lit("http/1.1")) {
+    if (proto.empty() || proto == "http/1.1"_sr) {
       break;
     }
     return -1;
@@ -580,18 +580,16 @@ int LiveCheck::write_clear() {
 }
 
 int LiveCheck::on_read(const uint8_t *data, size_t len) {
-  ssize_t rv;
-
-  rv = nghttp2_session_mem_recv(session_, data, len);
+  auto rv = nghttp2_session_mem_recv2(session_, data, len);
   if (rv < 0) {
-    LOG(ERROR) << "nghttp2_session_mem_recv() returned error: "
+    LOG(ERROR) << "nghttp2_session_mem_recv2() returned error: "
                << nghttp2_strerror(rv);
     return -1;
   }
 
   if (settings_ack_received_ && !session_closing_) {
     session_closing_ = true;
-    rv = nghttp2_session_terminate_session(session_, NGHTTP2_NO_ERROR);
+    auto rv = nghttp2_session_terminate_session(session_, NGHTTP2_NO_ERROR);
     if (rv != 0) {
       return -1;
     }
@@ -619,10 +617,10 @@ int LiveCheck::on_read(const uint8_t *data, size_t len) {
 int LiveCheck::on_write() {
   for (;;) {
     const uint8_t *data;
-    auto datalen = nghttp2_session_mem_send(session_, &data);
+    auto datalen = nghttp2_session_mem_send2(session_, &data);
 
     if (datalen < 0) {
-      LOG(ERROR) << "nghttp2_session_mem_send() returned error: "
+      LOG(ERROR) << "nghttp2_session_mem_send2() returned error: "
                  << nghttp2_strerror(datalen);
       return -1;
     }
@@ -768,15 +766,15 @@ int LiveCheck::connection_made() {
   }
 
   auto must_terminate =
-      addr_->tls && !nghttp2::tls::check_http2_requirement(conn_.tls.ssl);
+    addr_->tls && !nghttp2::tls::check_http2_requirement(conn_.tls.ssl);
 
   if (must_terminate) {
     if (LOG_ENABLED(INFO)) {
       LOG(INFO) << "TLSv1.2 was not negotiated. HTTP/2 must not be negotiated.";
     }
 
-    rv = nghttp2_session_terminate_session(session_,
-                                           NGHTTP2_INADEQUATE_SECURITY);
+    rv =
+      nghttp2_session_terminate_session(session_, NGHTTP2_INADEQUATE_SECURITY);
     if (rv != 0) {
       return -1;
     }
