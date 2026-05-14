@@ -1,15 +1,46 @@
-nghttp2 (1.59.0-1deepin1) unstable; urgency=medium
+nghttp2 (1.64.0-1.1) unstable; urgency=medium
 
-  * Fix CVE-2026-27135: missing iframe->state validations to avoid
-    assertion failure.
+  * Add patch: lp-2104171-avoid-rubydomain-namespace.patch (Closes: #1095360)
 
- -- lichenggang <lichenggang@deepin.org>  Thu, 16 Apr 2026 20:04:44 +0800
+ -- Maximiliano Curia <maxy@debian.org>  Fri, 11 Apr 2025 17:50:32 +0200
 
-nghttp2 (1.59.0-1deepin0) unstable; urgency=medium
+nghttp2 (1.64.0-1) unstable; urgency=medium
 
-  * No source change upload against GCC 12.
+  * New upstream version 1.64.0
 
- -- Tianyu Chen <sweetyfish@deepin.org>  Fri, 20 Sep 2024 12:14:13 +0800
+ -- Tomasz Buchert <tomasz@debian.org>  Mon, 28 Oct 2024 20:45:36 +0100
+
+nghttp2 (1.63.0-1) unstable; urgency=medium
+
+  * New upstream version 1.63.0
+  * Update std-ver to 4.7.0
+
+ -- Tomasz Buchert <tomasz@debian.org>  Sun, 01 Sep 2024 08:23:00 +0200
+
+nghttp2 (1.62.1-2) unstable; urgency=medium
+
+  [ Helmut Grohne ]
+  * Install systemd unit using dh_installsystemd. (Closes: #1073057)
+
+ -- Tomasz Buchert <tomasz@debian.org>  Wed, 10 Jul 2024 22:55:43 +0200
+
+nghttp2 (1.62.1-1) unstable; urgency=medium
+
+  * New upstream version 1.62.1
+
+ -- Tomasz Buchert <tomasz@debian.org>  Sat, 18 May 2024 09:28:10 +0200
+
+nghttp2 (1.61.0-1) unstable; urgency=high
+
+  * New upstream version 1.61.0 (fixes CVE-2024-28182)
+
+ -- Tomasz Buchert <tomasz@debian.org>  Fri, 05 Apr 2024 00:56:35 +0200
+
+nghttp2 (1.60.0-1) unstable; urgency=medium
+
+  * New upstream version 1.60.0
+
+ -- Tomasz Buchert <tomasz@debian.org>  Fri, 08 Mar 2024 22:31:26 +0100
 
 nghttp2 (1.59.0-1) unstable; urgency=medium
 

@@ -43,6 +43,7 @@
 #include <chrono>
 #include <array>
 
+#define NGHTTP2_NO_SSIZE_T
 #include <nghttp2/nghttp2.h>
 
 #ifdef ENABLE_HTTP3
@@ -52,7 +53,14 @@
 
 #include <ev.h>
 
-#include <openssl/ssl.h>
+#include "ssl_compat.h"
+
+#ifdef NGHTTP2_OPENSSL_IS_WOLFSSL
+#  include <wolfssl/options.h>
+#  include <wolfssl/openssl/ssl.h>
+#else // !NGHTTP2_OPENSSL_IS_WOLFSSL
+#  include <openssl/ssl.h>
+#endif // !NGHTTP2_OPENSSL_IS_WOLFSSL
 
 #include "http2.h"
 #ifdef ENABLE_HTTP3
@@ -92,7 +100,7 @@ struct Config {
   size_t nclients;
   size_t nthreads;
   // The maximum number of concurrent streams per session.
-  ssize_t max_concurrent_streams;
+  size_t max_concurrent_streams;
   size_t window_bits;
   size_t connection_window_bits;
   size_t max_frame_size;
@@ -138,6 +146,9 @@ struct Config {
   size_t max_udp_payload_size;
   // Enable ktls.
   bool ktls;
+  // sni is the value sent in TLS SNI, overriding DNS name of the
+  // remote host.
+  std::string sni;
 
   Config();
   ~Config();
